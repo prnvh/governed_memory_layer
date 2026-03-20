@@ -1,158 +1,86 @@
-# Governed Shared Memory for Multi-Agent AI
+# GOVERNED MEMORY LAYER 
 
-A memory system for multi-agent AI where agents propose, a gatekeeper approves, and memory stays clean. Free-form agent writes lose to governed mutation.
+A governed memory pipeline for multi-agent systems. Agents work in private working memory; a promotion pipeline decides what becomes shared canonical truth.
 
-## The Problem
+Shared memory is SQLite-backed with an append-only event ledger and bucketed canonical views. Agents never write shared memory directly — all writes flow through the pipeline.
 
-Multi-agent systems fail not because they lack storage—they fail because they lack **governed memory mutation**. When agents write directly to shared memory:
-
-- ❌ Stale facts don't get updated; newer contradictions go unresolved
-- ❌ Duplicates accumulate; agents can't distinguish valid from obsolete
-- ❌ No audit trail; impossible to debug which agent corrupted state
-- ❌ Free-form text is noisy; retrieval is unreliable
-
-## The Solution
-
-Agents **propose** memory, a Claude gatekeeper **filters + normalizes** it, and a **deterministic reducer** compiles it into clean canonical state.
-
-```
-agent proposes → gatekeeper validates → append-only log → reducer → agents read clean state
-```
-
-Five core pieces:
-
-1. **Candidate ingress**: Agents emit `MemoryWriteCandidate` (not direct writes)
-2. **LLM gatekeeper**: Claude decides accept/reject, normalizes into structured `MemoryEvent`
-3. **Append-only log**: Immutable JSONL event store (source of truth)
-4. **Deterministic reducer**: Replays events → produces canonical state (no LLM in reducer)
-5. **Memory reader**: Agents query from projected state, not free-form text
-
-## How It Works
-
-### Write Path
-```python
-# 1. Agent proposes memory
-candidate = CandidateMemoryEvent(
-    agent_id="planner",
-    content="Use dataset B instead of A",
-    confidence=0.91,
-    scope="benchmark_plan_4"
-)
-
-# 2. Gatekeeper normalizes
-decision = gatekeeper.compile(candidate)
-# → accept + extract: event_type, entity_id, upsert_key, payload
-
-# 3. Event appended to log
-event_log.append(decision)
-
-# 4. Reducer computes state
-canonical_state = reducer.reduce(event_log.read_all())
-```
-
-### Read Path
-```python
-# Agents read from projected state, not chat history
-facts = memory_reader.get_facts(entity_id="benchmark_plan_4")
-issues = memory_reader.get_active_issues(entity_id="benchmark_run_7")
-decisions = memory_reader.get_decision_history(entity_id="project_1")
-```
-
-## Key Features
-
-- **Governed writes**: Gatekeeper enforces schema, rejects noise
-- **Transparent mutations**: Every state change is auditable (provenance tracked)
-- **Conflict handling**: Detects contradictions, marks them, preserves history
-- **Deterministic state**: Same events always produce same canonical state
-- **No LLM in reducer**: Fast, consistent, rule-based state computation
-- **Structured retrieval**: Agents query by entity/topic, not embeddings alone
-- **Provenance tracking**: Every memory item links to source events
-
+---
 
 ## Architecture
 
 ```
-┌─────────────┐
-│   Agents    │  propose memory (not direct writes)
-└──────┬──────┘
-       │
-       ▼
-┌─────────────────────┐
-│ Candidate Ingress   │  queue proposals
-└──────┬──────────────┘
-       │
-       ▼
-┌──────────────────────┐
-│ LLM Gatekeeper      │  validate + normalize
-│ (Claude Sonnet)     │  → MemoryEvent
-└──────┬───────────────┘
-       │
-       ▼
-┌──────────────────────┐
-│ Append-Only Log      │  immutable event store
-│ (JSONL)              │  source of truth
-└──────┬───────────────┘
-       │
-       ▼
-┌──────────────────────┐
-│ Deterministic        │  replay events
-│ Reducer              │  → canonical state
-└──────┬───────────────┘
-       │
-       ▼
-┌──────────────────────┐
-│ Projected State      │  issues, facts, decisions,
-│ (JSON snapshot)      │  constraints, results
-└──────┬───────────────┘
-       │
-       ▼
-┌──────────────────────┐
-│ Memory Reader        │  agents query here
-└──────────────────────┘
+Agent
+  └─► Working Memory (per-agent, NL notes, run-scoped)
+            │
+            │  [end-of-step or tool-result trigger]
+            ▼
+       Interpreter (LLM)
+            │  reject ──► dropped
+            │  accept ──► { bucket, target, operation, payload }
+            ▼
+        Validator (schema check)
+            │  invalid ──► dropped + logged
+            │  valid
+            ▼
+         Inputter
+            ├─► memory_events (append-only event ledger)
+            └─► Projector ──► canonical view tables
+                              (plan, issues, constraints,
+                               decisions, results, task_state,
+                               learnings)
+                                    │
+                                    ▼
+                            Agents read from here
 ```
 
-## Schema
+---
 
-### Entity Types
-- `project`, `task`, `benchmark_run`, `experiment`, `code_artifact`, `hypothesis`
+## Components
 
-### Event Types
-- `fact_asserted` — store a fact
-- `issue_observed` — flag a problem
-- `issue_resolved` — close an issue
-- `decision_made` — record a choice
-- `constraint_added` / `constraint_removed` — manage constraints
-- `result_logged` — append experiment result
+- **WorkingMemory** — per-agent, run-scoped NL note store. Private and ephemeral.
+- **Interpreter** — LLM-based classifier. Decides whether a note warrants promotion and produces a structured write request.
+- **Validator** — schema and rule checker. Rejects malformed or invalid write requests before any write happens.
+- **Inputter** — the only writer. Appends to the event ledger and triggers the projector.
+- **Projector** — updates canonical view tables deterministically from a validated event.
+- **SharedMemory** — read API for canonical views. What agents query.
+- **Promotion** — orchestrates the full pipeline: WorkingMemory → Interpreter → Validator → Inputter.
 
-### Canonical State
-```json
-{
-  "facts": {
-    "entity_id:topic": {
-      "value": "...",
-      "confidence": 0.92,
-      "provenance": ["mem_001", "mem_042"],
-      "history": ["mem_001"],
-      "last_updated_at": "2026-03-21T10:00:00Z"
-    }
-  },
-  "issues": { "entity_id:issue_key": { "status": "open", ... } },
-  "decisions": { ... },
-  "constraints": { ... },
-  "results": { ... }
-}
+---
+
+## Phases
+
+- **Phase 1** — working pipeline: schema, connection, working memory, interpreter, validator, projector, inputter, shared memory, promotion.
+- **Phase 2** — full domain coverage + validator rules for all buckets.
+- **Phase 3** — promotion quality: interpreter prompt tuning, rejection rate tracking.
+- **Phase 4** — provenance: full event history queryable per target.
+- **Phase 5** — eval harness: benchmark trajectories, scorer, CLI runner.
+
+---
+
+## Hard Rules
+
+- Agents never write to shared memory directly. Only the Inputter does.
+- The event ledger (`memory_events`) is append-only. No updates or deletes.
+- Agents read from canonical view tables, not the event ledger.
+- Working memory is per-agent and run-scoped. It is not authoritative.
+- Interpreter output must be validated before any write happens.
+
+---
+
+## Running Tests
+
+```bash
+# All fast tests (no API key needed):
+pytest tests/ -m "not integration"
+
+# Real API integration tests (requires ANTHROPIC_API_KEY):
+pytest tests/test_integration_real_api.py -m integration
 ```
 
-## Future Work
+## Environment Variables
 
-- Semantic search over provenance events
-- Time-travel queries (state at any point in history)
-- Conflict resolution strategies (voting, expert override)
-- Integration with tool use (agents emit memory from function results)
-- Multi-user authorization (who can write to which entities)
-
-
-## License
-
-Apache 2.0
-.
+```
+ANTHROPIC_API_KEY=...       # required for Interpreter and agents
+AGENT_MEMORY_DB_PATH=...    # optional, defaults to agent_memory.db
+AGENT_MEMORY_LOG_LEVEL=...  # optional: DEBUG|INFO|WARNING, defaults to INFO
+```

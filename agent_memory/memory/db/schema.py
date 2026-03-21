@@ -1,10 +1,11 @@
 # Table definitions and database initialization for the shared memory layer. 
 
+
 import sqlite3
 
 
-CREATE_MEMORY_EVENTS = """
-CREATE TABLE IF NOT EXISTS memory_events (
+CREATE_EVENTS_MEMORY = """
+CREATE TABLE IF NOT EXISTS events_memory (
     event_id                TEXT PRIMARY KEY,
     timestamp               TEXT NOT NULL,
     source_agent            TEXT NOT NULL,
@@ -18,8 +19,8 @@ CREATE TABLE IF NOT EXISTS memory_events (
 )
 """
 
-CREATE_PLAN_VIEW = """
-CREATE TABLE IF NOT EXISTS plan_view (
+CREATE_SHARED_PLAN = """
+CREATE TABLE IF NOT EXISTS shared_plan (
     target_id               TEXT PRIMARY KEY,
     version                 INTEGER NOT NULL DEFAULT 1,
     plan_json               TEXT NOT NULL,
@@ -27,8 +28,8 @@ CREATE TABLE IF NOT EXISTS plan_view (
 )
 """
 
-CREATE_CONSTRAINTS_VIEW = """
-CREATE TABLE IF NOT EXISTS constraints_view (
+CREATE_SHARED_CONSTRAINTS = """
+CREATE TABLE IF NOT EXISTS shared_constraints (
     constraint_id           TEXT PRIMARY KEY,
     text                    TEXT NOT NULL,
     status                  TEXT NOT NULL DEFAULT 'active',
@@ -38,8 +39,8 @@ CREATE TABLE IF NOT EXISTS constraints_view (
 )
 """
 
-CREATE_ISSUES_VIEW = """
-CREATE TABLE IF NOT EXISTS issues_view (
+CREATE_SHARED_ISSUES = """
+CREATE TABLE IF NOT EXISTS shared_issues (
     issue_id                TEXT PRIMARY KEY,
     title                   TEXT NOT NULL,
     description             TEXT,
@@ -52,8 +53,8 @@ CREATE TABLE IF NOT EXISTS issues_view (
 )
 """
 
-CREATE_DECISIONS_VIEW = """
-CREATE TABLE IF NOT EXISTS decisions_view (
+CREATE_SHARED_DECISIONS = """
+CREATE TABLE IF NOT EXISTS shared_decisions (
     decision_id             TEXT PRIMARY KEY,
     statement               TEXT NOT NULL,
     rationale               TEXT,
@@ -63,8 +64,8 @@ CREATE TABLE IF NOT EXISTS decisions_view (
 )
 """
 
-CREATE_RESULTS_VIEW = """
-CREATE TABLE IF NOT EXISTS results_view (
+CREATE_SHARED_RESULTS = """
+CREATE TABLE IF NOT EXISTS shared_results (
     result_id               TEXT PRIMARY KEY,
     experiment_id           TEXT,
     metric_name             TEXT NOT NULL,
@@ -75,8 +76,8 @@ CREATE TABLE IF NOT EXISTS results_view (
 )
 """
 
-CREATE_TASK_STATE_VIEW = """
-CREATE TABLE IF NOT EXISTS task_state_view (
+CREATE_SHARED_TASK_STATE = """
+CREATE TABLE IF NOT EXISTS shared_task_state (
     task_id                 TEXT PRIMARY KEY,
     status                  TEXT NOT NULL,
     phase                   TEXT,
@@ -86,8 +87,8 @@ CREATE TABLE IF NOT EXISTS task_state_view (
 )
 """
 
-CREATE_LEARNINGS_VIEW = """
-CREATE TABLE IF NOT EXISTS learnings_view (
+CREATE_SHARED_LEARNINGS = """
+CREATE TABLE IF NOT EXISTS shared_learnings (
     learning_id             TEXT PRIMARY KEY,
     title                   TEXT NOT NULL,
     statement               TEXT NOT NULL,
@@ -101,14 +102,14 @@ CREATE TABLE IF NOT EXISTS learnings_view (
 """
 
 ALL_TABLES = [
-    CREATE_MEMORY_EVENTS,
-    CREATE_PLAN_VIEW,
-    CREATE_CONSTRAINTS_VIEW,
-    CREATE_ISSUES_VIEW,
-    CREATE_DECISIONS_VIEW,
-    CREATE_RESULTS_VIEW,
-    CREATE_TASK_STATE_VIEW,
-    CREATE_LEARNINGS_VIEW,
+    CREATE_EVENTS_MEMORY,
+    CREATE_SHARED_PLAN,
+    CREATE_SHARED_CONSTRAINTS,
+    CREATE_SHARED_ISSUES,
+    CREATE_SHARED_DECISIONS,
+    CREATE_SHARED_RESULTS,
+    CREATE_SHARED_TASK_STATE,
+    CREATE_SHARED_LEARNINGS,
 ]
 
 # Create all tables if they don't exist. Idempotent.

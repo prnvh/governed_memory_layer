@@ -1,4 +1,4 @@
-# GOVERNED MEMORY LAYER 
+# Governed Memory Layer 
 
 A governed memory pipeline for multi-agent systems. Agents work in private working memory; a promotion pipeline decides what becomes shared canonical truth.
 

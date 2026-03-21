@@ -112,7 +112,6 @@ ALL_TABLES = [
 ]
 
 # Create all tables if they don't exist. Idempotent.
-
 def init_db(conn: sqlite3.Connection) -> None:
     cursor = conn.cursor()
     for statement in ALL_TABLES:

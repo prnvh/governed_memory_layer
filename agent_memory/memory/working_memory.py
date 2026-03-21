@@ -4,8 +4,11 @@
 
 from datetime import datetime, timezone
 
-# Stored NL notes/observations as timestamped entries. not shared.
 class WorkingMemory:
+    """
+    Per-agent working memory. Run-scoped. Stores NL notes/observations
+    as a list of timestamped entries. Not shared. Not authoritative.
+    """
 
     def __init__(self, agent_id: str, run_id: str):
         self.agent_id = agent_id

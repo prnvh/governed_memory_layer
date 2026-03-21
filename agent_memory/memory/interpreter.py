@@ -1,4 +1,3 @@
-
 # LLM-based promotion classifier.
 # Takes a candidate note from working memory and decides whether it should be promoted to shared memory
 # If promoted, produces a structured write request to be validated and operated into shared memory.
@@ -9,7 +8,7 @@ import logging
 import os
 from typing import Any, Literal, Optional
 
-import anthropic
+import openai
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -66,10 +65,10 @@ Reject if:
 - The note is a duplicate of something that would already be in shared memory
 - The note is a transient observation with no lasting relevance"""
 
-    def __init__(self, model: str = "claude-sonnet-4-20250514"):
+    def __init__(self, model: str = "gpt-4.1"):
         self.model = model
-        self._client = anthropic.Anthropic(
-            api_key=os.environ.get("ANTHROPIC_API_KEY")
+        self._client = openai.OpenAI(
+            api_key=os.environ.get("OPENAI_API_KEY")
         )
 
 # Take one candidate note, return one write request (accept or reject with rationale) 
@@ -77,13 +76,15 @@ Reject if:
         user_message = f"Agent: {agent_id}\n\nNote to evaluate:\n{candidate_note}"
 
         try:
-            response = self._client.messages.create(
+            response = self._client.chat.completions.create(
                 model=self.model,
                 max_tokens=1000,
-                system=self.SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_message}],
+                messages=[
+                    {"role": "system", "content": self.SYSTEM_PROMPT},
+                    {"role": "user", "content": user_message},
+                ],
             )
-            raw_text = response.content[0].text.strip()
+            raw_text = response.choices[0].message.content.strip()
 
             # Strip markdown code fences if present
             if raw_text.startswith("```"):

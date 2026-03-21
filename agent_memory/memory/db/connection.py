@@ -4,7 +4,7 @@
 import os
 import sqlite3
 
-from agent_memory.memory.db.schema import init_db
+from memory.db.schema import init_db
 
 DEFAULT_DB_PATH: str = os.environ.get("AGENT_MEMORY_DB_PATH", "memory.db")
 

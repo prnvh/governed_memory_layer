@@ -1,7 +1,4 @@
-"""
-Table definitions and database initialization for the governed memory layer.
-All canonical view tables and the append-only event ledger are defined here.
-"""
+# Table definitions and database initialization for the shared memory layer. 
 
 import sqlite3
 
@@ -114,9 +111,9 @@ ALL_TABLES = [
     CREATE_LEARNINGS_VIEW,
 ]
 
+# Create all tables if they don't exist. Idempotent.
 
 def init_db(conn: sqlite3.Connection) -> None:
-    """Create all tables if they don't exist. Idempotent."""
     cursor = conn.cursor()
     for statement in ALL_TABLES:
         cursor.execute(statement)

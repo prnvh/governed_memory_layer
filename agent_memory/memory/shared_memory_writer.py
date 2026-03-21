@@ -1,8 +1,7 @@
-"""
-Shared memory writer.
-Takes a validated, persisted event and writes it to the correct shared_* table.
-No LLM calls. No reasoning. Pure SQL. Does NOT commit — Inputter owns the transaction.
-"""
+# Shared memory writer.
+# Takes a validated, persisted event and writes it to the correct shared_* table.
+# No LLM calls. No reasoning. Pure SQL. Does NOT commit — Inputter owns the transaction.
+
 
 import json
 import logging

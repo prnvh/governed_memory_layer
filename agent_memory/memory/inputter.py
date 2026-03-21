@@ -1,4 +1,3 @@
-
 # The official write layer.
 # The only component allowed to write to the database.
 # Appends to events_memory (always), then calls SharedMemoryWriter to update shared_* tables.
@@ -11,8 +10,8 @@ import sqlite3
 import uuid
 from datetime import datetime, timezone
 
-from agent_memory.memory.interpreter import WriteRequest
-from agent_memory.memory.shared_memory_writer import SharedMemoryWriter
+from memory.interpreter import WriteRequest
+from memory.shared_memory_writer import SharedMemoryWriter
 
 logger = logging.getLogger(__name__)
 
@@ -63,47 +62,47 @@ class Inputter:
             "source_ref":   source_ref,
         }
 
+        # Step 2 — insert event into the ledger with applied_successfully=0 as safe default.
+        # This write is unconditional — the audit trail must never be lost.
+        self.conn.execute(
+            """
+            INSERT INTO events_memory
+                (event_id, timestamp, source_agent, bucket, target_id,
+                 operation, payload_json, raw_input, source_ref, applied_successfully)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+            """,
+            (
+                event_id, timestamp, source_agent,
+                write_request.bucket, write_request.target_id,
+                write_request.operation, payload_json,
+                raw_input, source_ref,
+            ),
+        )
+
+        # Step 3 — write to the correct shared_* table.
+        # Failures here do not roll back the ledger — they just set applied_successfully=0.
+        applied = False
         try:
-            # Step 1 & 2 — insert event with applied_successfully=0 as a safe default
-            self.conn.execute(
-                """
-                INSERT INTO events_memory
-                    (event_id, timestamp, source_agent, bucket, target_id,
-                     operation, payload_json, raw_input, source_ref, applied_successfully)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-                """,
-                (
-                    event_id, timestamp, source_agent,
-                    write_request.bucket, write_request.target_id,
-                    write_request.operation, payload_json,
-                    raw_input, source_ref,
-                ),
-            )
-
-            # Step 3 — write to the correct shared_* table
             applied = self.shared_memory_writer.write(event)
-
-            # Step 4 — mark success or failure in the ledger
-            self.conn.execute(
-                "UPDATE events_memory SET applied_successfully=? WHERE event_id=?",
-                (1 if applied else 0, event_id),
-            )
-
-            # Step 5 — commit the whole transaction
-            self.conn.commit()
-
-            logger.info(
-                "Inputter: wrote event %s | agent=%s bucket=%s target=%s applied=%s",
-                event_id, source_agent, write_request.bucket,
-                write_request.target_id, applied,
-            )
-
         except Exception as e:
-            self.conn.rollback()
             logger.error(
-                "Inputter: transaction rolled back for event %s — %s: %s",
+                "Inputter: shared memory write failed for event %s — %s: %s",
                 event_id, type(e).__name__, e,
             )
-            raise
+
+        # Step 4 — record whether the view write succeeded.
+        self.conn.execute(
+            "UPDATE events_memory SET applied_successfully=? WHERE event_id=?",
+            (1 if applied else 0, event_id),
+        )
+
+        # Step 5 — commit. Always reaches here regardless of writer outcome.
+        self.conn.commit()
+
+        logger.info(
+            "Inputter: wrote event %s | agent=%s bucket=%s target=%s applied=%s",
+            event_id, source_agent, write_request.bucket,
+            write_request.target_id, applied,
+        )
 
         return event_id

@@ -6,8 +6,8 @@
 import logging
 import re
 
-from agent_memory.memory.interpreter import WriteRequest
-from agent_memory.memory.db.schema import get_valid_buckets, get_valid_operations
+from memory.interpreter import WriteRequest
+from memory.db.schema import get_valid_buckets, get_valid_operations
 
 logger = logging.getLogger(__name__)
 

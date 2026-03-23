@@ -57,7 +57,31 @@ For accept: { "decision": "accept", "bucket": "...", "target_id": "...", "operat
 For reject: { "decision": "reject", "rationale": "..." }
 
 target_id must be a short snake_case slug with no spaces.
+For plan: target_id must ALWAYS be exactly "main" (no exceptions).
 Include ALL required payload fields for the chosen bucket.
+
+If OPEN ISSUES are provided in the context below, you must check them before
+classifying a note about issues. Specifically:
+- If the note says something is fixed/resolved/done and it matches an open issue,
+  use operation "resolve" and set target_id to that issue's exact issue_id.
+- If the note describes a new issue not in the list, use operation "upsert" with
+  a new snake_case target_id.
+- Do NOT create a new issue row for something that is already tracked as open.
+
+If ACTIVE DECISIONS are provided in the context below, you must check them before
+classifying a note about decisions. Specifically:
+- If the note says a prior decision is wrong, invalid, or superseded, use operation
+  "invalidate" and set target_id to that decision's exact decision_id.
+- If the note introduces a genuinely new decision, use operation "append" with a
+  new snake_case target_id.
+- Do NOT append a new decision for something that is already tracked as active.
+
+If ACTIVE CONSTRAINTS are provided in the context below, you must check them before
+classifying a note about constraints. Specifically:
+- If the note says a constraint no longer applies, use operation "invalidate" and
+  set target_id to that constraint's exact constraint_id.
+- If the note introduces a new constraint, use operation "upsert" with a new
+  snake_case target_id.
 
 Reject if:
 - The note is vague thinking, not a concrete fact/decision/result/issue
@@ -72,8 +96,60 @@ Reject if:
         )
 
 # Take one candidate note, return one write request (accept or reject with rationale) 
-    def interpret(self, candidate_note: str, agent_id: str) -> WriteRequest:
-        user_message = f"Agent: {agent_id}\n\nNote to evaluate:\n{candidate_note}"
+    def interpret(
+        self,
+        candidate_note: str,
+        agent_id: str,
+        context: Optional[dict] = None,
+    ) -> WriteRequest:
+        """
+        Takes ONE candidate note and optional context from shared memory.
+        Context should contain relevant current state — currently open issues.
+        Returns ONE WriteRequest (accept or reject).
+        """
+        context_block = ""
+        if context:
+            sections = []
+
+            open_issues = context.get("open_issues", [])
+            if open_issues:
+                lines = ["OPEN ISSUES (already tracked in shared memory):"]
+                for issue in open_issues:
+                    lines.append(
+                        f"  - issue_id: {issue.get('issue_id')} | "
+                        f"title: {issue.get('title')} | "
+                        f"severity: {issue.get('severity')}"
+                    )
+                sections.append("\n".join(lines))
+
+            active_decisions = context.get("active_decisions", [])
+            if active_decisions:
+                lines = ["ACTIVE DECISIONS (already tracked in shared memory):"]
+                for decision in active_decisions:
+                    lines.append(
+                        f"  - decision_id: {decision.get('decision_id')} | "
+                        f"statement: {decision.get('statement')}"
+                    )
+                sections.append("\n".join(lines))
+
+            active_constraints = context.get("active_constraints", [])
+            if active_constraints:
+                lines = ["ACTIVE CONSTRAINTS (already tracked in shared memory):"]
+                for constraint in active_constraints:
+                    lines.append(
+                        f"  - constraint_id: {constraint.get('constraint_id')} | "
+                        f"text: {constraint.get('text')}"
+                    )
+                sections.append("\n".join(lines))
+
+            if sections:
+                context_block = "\n\n" + "\n\n".join(sections)
+
+        user_message = (
+            f"Agent: {agent_id}"
+            f"{context_block}"
+            f"\n\nNote to evaluate:\n{candidate_note}"
+        )
 
         try:
             response = self._client.chat.completions.create(

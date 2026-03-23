@@ -169,7 +169,7 @@ class GovernedMemoryHarness(BaseHarness):
             writer = SharedMemoryWriter(conn)
             inputter = Inputter(conn, writer)
             shared_memory = SharedMemory(conn)
-            pipeline = PromotionPipeline(interpreter, validator, inputter)
+            pipeline = PromotionPipeline(interpreter, validator, inputter, shared_memory=shared_memory)
 
             # Feed all notes into working memory
             wm = WorkingMemory(

@@ -1,4 +1,6 @@
 """
+benchmarks/trajectories/schema.py
+
 Defines the Trajectory dataclass — the unit of input for the benchmark harness.
 
 A Trajectory is a sequence of notes representing what an agent would write
@@ -38,17 +40,31 @@ class ExpectedOutcome:
 
     Fields:
         bucket      — which shared_* table to check (plan, issues, constraints, etc.)
-        target_id   — the PK to look up in that table
+        target_id   — the PK to look up in that table (used when match_by="target_id")
+                      set to "" when match_by="fields"
         present     — if True, the row must exist; if False, it must not exist
         checks      — optional field-level assertions: {field_name: expected_value}
                       only evaluated when present=True and the row is found
+        match_by    — "target_id": look up by exact slug (default)
+                      "fields": find any row in the bucket where all checks pass,
+                      regardless of what slug the interpreter chose. Use this when
+                      slug consistency is not the property being tested.
 
-    Example — assert an issue was promoted with correct severity:
+    Example — assert a specific slug was used (tests interpreter consistency):
+        ExpectedOutcome(
+            bucket="plan",
+            target_id="main",
+            present=True,
+            match_by="target_id",
+        )
+
+    Example — assert a resolved issue exists without caring about slug:
         ExpectedOutcome(
             bucket="issues",
-            target_id="pandas_import_error",
+            target_id="",
             present=True,
-            checks={"severity": "high", "status": "open"},
+            match_by="fields",
+            checks={"status": "resolved"},
         )
 
     Example — assert a noisy note was NOT promoted:
@@ -56,12 +72,14 @@ class ExpectedOutcome:
             bucket="issues",
             target_id="thinking_out_loud",
             present=False,
+            match_by="target_id",
         )
     """
     bucket: str
     target_id: str
     present: bool = True
     checks: dict[str, Any] = field(default_factory=dict)
+    match_by: str = "target_id"  # "target_id" | "fields"
 
 
 @dataclass

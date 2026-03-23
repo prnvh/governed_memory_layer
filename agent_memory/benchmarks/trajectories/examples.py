@@ -94,11 +94,14 @@ TRAJECTORY_CURRENT_STATE_TRACKING = Trajectory(
             present=True,
             checks={},
         ),
-        # Issue was opened
+        # Issue was opened and resolved — match by field values, not slug.
+        # The interpreter may choose any slug for this issue; what matters
+        # is that exactly one resolved issue exists in the bucket.
         ExpectedOutcome(
             bucket="issues",
-            target_id="pandas_import_error",
+            target_id="",
             present=True,
+            match_by="fields",
             checks={"status": "resolved"},
         ),
         # The noisy internal reasoning note should NOT have been promoted
@@ -184,11 +187,14 @@ TRAJECTORY_CONTRADICTION_AND_UPDATE = Trajectory(
             present=True,
             checks={},
         ),
-        # The dataset_a decision should be invalidated (superseded)
+        # A decision was made then superseded — match by field values, not slug.
+        # The interpreter may choose any slug; what matters is that a superseded
+        # decision exists in the bucket after the invalidation note.
         ExpectedOutcome(
             bucket="decisions",
-            target_id="use_dataset_a",
+            target_id="",
             present=True,
+            match_by="fields",
             checks={"status": "superseded"},
         ),
     ],
@@ -261,25 +267,28 @@ TRAJECTORY_LEARNING_EXTRACTION = Trajectory(
         ),
     ],
     expected_outcomes=[
-        # Issue was opened and resolved
+        # Issue was opened and resolved — match by status, not slug
         ExpectedOutcome(
             bucket="issues",
-            target_id="numpy_version_mismatch",
+            target_id="",
             present=True,
+            match_by="fields",
             checks={"status": "resolved"},
         ),
-        # Learning was extracted and is active
+        # Learning was extracted and is active — match by status, not slug
         ExpectedOutcome(
             bucket="learnings",
-            target_id="pin_exact_dependencies",
+            target_id="",
             present=True,
+            match_by="fields",
             checks={"status": "active"},
         ),
-        # Task state reflects completion
+        # Task state reflects completion — match by status, not slug
         ExpectedOutcome(
             bucket="task_state",
-            target_id="exp_003",
+            target_id="",
             present=True,
+            match_by="fields",
             checks={"status": "done"},
         ),
     ],

@@ -5,6 +5,7 @@
 
 import logging
 import re
+from typing import Optional
 
 from memory.interpreter import WriteRequest
 from memory.db.schema import get_valid_buckets, get_valid_operations
@@ -44,7 +45,11 @@ class Validator:
         "learnings":   ["append"],
     }
 
-    def validate(self, write_request: WriteRequest) -> None:
+    def validate(
+        self,
+        write_request: WriteRequest,
+        context: Optional[dict] = None,
+    ) -> None:
         """
         Raises ValidationError if the write request fails any check.
         Passes silently if valid.
@@ -56,6 +61,7 @@ class Validator:
         4. target_id is non-empty and a valid slug (no spaces, alphanumeric + _ -)
         5. payload is a non-None dict
         6. payload contains all required fields for the bucket
+        7. for resolve: target_id must exist in open issues context
         """
         # 1. Must be an accepted request
         if write_request.decision != "accept":
@@ -93,26 +99,36 @@ class Validator:
         if write_request.payload is None:
             if write_request.operation in ("resolve", "invalidate"):
                 # Allow None payload for resolve/invalidate — no fields required
-                return
-            raise ValidationError(
-                f"payload is required for operation '{write_request.operation}' "
-                f"on bucket '{write_request.bucket}'."
-            )
-
-        if not isinstance(write_request.payload, dict):
+                pass
+            else:
+                raise ValidationError(
+                    f"payload is required for operation '{write_request.operation}' "
+                    f"on bucket '{write_request.bucket}'."
+                )
+        elif not isinstance(write_request.payload, dict):
             raise ValidationError("payload must be a dict.")
 
         # 6. Required payload fields must be present and non-None
         # Skip required field checks for resolve/invalidate
-        if write_request.operation in ("resolve", "invalidate"):
-            return
+        if write_request.operation not in ("resolve", "invalidate"):
+            required_fields = self.BUCKET_REQUIRED_PAYLOAD_FIELDS[write_request.bucket]
+            missing = [f for f in required_fields if f not in (write_request.payload or {}) or (write_request.payload or {}).get(f) is None]
+            if missing:
+                raise ValidationError(
+                    f"payload for bucket '{write_request.bucket}' is missing required fields: {missing}"
+                )
 
-        required_fields = self.BUCKET_REQUIRED_PAYLOAD_FIELDS[write_request.bucket]
-        missing = [f for f in required_fields if f not in write_request.payload or write_request.payload[f] is None]
-        if missing:
-            raise ValidationError(
-                f"payload for bucket '{write_request.bucket}' is missing required fields: {missing}"
-            )
+        # 7. For resolve on issues: target_id must exist as an open issue in context.
+        # Without this check, the interpreter could resolve a non-existent issue.
+        if write_request.operation == "resolve" and write_request.bucket == "issues":
+            if context is not None:
+                open_issues = context.get("open_issues", [])
+                known_ids = {issue.get("issue_id") for issue in open_issues}
+                if write_request.target_id not in known_ids:
+                    raise ValidationError(
+                        f"resolve target '{write_request.target_id}' does not match any "
+                        f"open issue in context. Known open issue ids: {sorted(known_ids)}"
+                    )
 
         logger.debug(
             "Validator passed: bucket=%s operation=%s target_id=%s",

@@ -74,6 +74,7 @@ class SharedMemory:
         Return all issues with status='open'.
         Optionally filter by severity: low|medium|high|critical.
         Returns an empty list if none exist.
+        For agent use — agents only care about active blockers.
         """
         if severity is not None:
             cursor = self.conn.execute(
@@ -84,6 +85,15 @@ class SharedMemory:
             cursor = self.conn.execute(
                 "SELECT * FROM shared_issues WHERE status = 'open'"
             )
+        return self._rows_to_dicts(cursor.fetchall())
+
+    def get_all_issues(self) -> list[dict]:
+        """
+        Return all issues regardless of status (open, resolved, wont_fix).
+        For benchmark evaluation and provenance — not regular agent use.
+        Agents should use get_open_issues() instead.
+        """
+        cursor = self.conn.execute("SELECT * FROM shared_issues")
         return self._rows_to_dicts(cursor.fetchall())
 
     def get_issue(self, issue_id: str) -> Optional[dict]:
@@ -106,11 +116,21 @@ class SharedMemory:
         Return decisions filtered by status.
         Valid statuses: active|superseded|invalidated.
         Returns an empty list if none exist.
+        For agent use — agents only care about active decisions.
         """
         cursor = self.conn.execute(
             "SELECT * FROM shared_decisions WHERE status = ?",
             (status,),
         )
+        return self._rows_to_dicts(cursor.fetchall())
+
+    def get_all_decisions(self) -> list[dict]:
+        """
+        Return all decisions regardless of status (active, superseded, invalidated).
+        For benchmark evaluation and provenance — not regular agent use.
+        Agents should use get_decisions() instead.
+        """
+        cursor = self.conn.execute("SELECT * FROM shared_decisions")
         return self._rows_to_dicts(cursor.fetchall())
 
     # ------------------------------------------------------------------
@@ -238,8 +258,8 @@ class SharedMemory:
         return {
             "plan":        self.get_plan(),
             "constraints": self.get_active_constraints(),
-            "issues":      self.get_open_issues(),
-            "decisions":   self.get_decisions(status="active"),
+            "issues":      self.get_all_issues(),
+            "decisions":   self.get_all_decisions(),
             "results":     self.get_results(),
             "task_state":  self.get_all_tasks(),
             "learnings":   self.get_learnings(),

@@ -1,4 +1,3 @@
-
 # Orchestrates the full promotion pipeline: WorkingMemory -> Interpreter -> Validator -> Inputter
 # Called at end-of-step or on tool-result triggers. 
 # Collects unpromoted working memory candidates, runs each through the pipeline, and handles failures without crashing. 
@@ -12,6 +11,7 @@ from memory.interpreter import Interpreter, WriteRequest
 from memory.validator import Validator, ValidationError
 from memory.inputter import Inputter
 from memory.working_memory import WorkingMemory
+from memory.shared_memory import SharedMemory
 
 logger = logging.getLogger(__name__)
 
@@ -48,10 +48,12 @@ class PromotionPipeline:
         interpreter: Interpreter,
         validator: Validator,
         inputter: Inputter,
+        shared_memory: Optional[SharedMemory] = None,
     ):
         self.interpreter = interpreter
         self.validator = validator
         self.inputter = inputter
+        self.shared_memory = shared_memory
 
     def run(
         self,
@@ -97,7 +99,13 @@ class PromotionPipeline:
 
         for idx, note in enumerate(candidates):
             note_text = note["text"]
-            result = self._process_note(note_text, working_memory.agent_id)
+
+            # Fetch current shared memory context before each note.
+            # This gives the interpreter visibility into existing open issues
+            # so it can resolve them correctly instead of creating duplicates.
+            context = self._build_context()
+
+            result = self._process_note(note_text, working_memory.agent_id, context)
             results.append(result)
             promoted_indices.append(idx)
 
@@ -126,15 +134,46 @@ class PromotionPipeline:
     # Internal
     # ------------------------------------------------------------------
 
-    def _process_note(self, note_text: str, agent_id: str) -> PromotionResult:
+    def _build_context(self) -> Optional[dict]:
+        """
+        Fetch relevant current state from shared memory to pass to the
+        interpreter and validator before each note is processed.
+
+        Returns None if no shared memory is wired.
+
+        Only fetches state that can be transitioned — i.e. things the
+        interpreter might need to resolve or invalidate:
+            - open issues      (can be resolved)
+            - active decisions (can be invalidated)
+            - active constraints (can be invalidated)
+
+        Fetched fresh per note so that a write from note N is visible
+        to the interpreter when processing note N+1.
+        """
+        if self.shared_memory is None:
+            return None
+        return {
+            "open_issues":         self.shared_memory.get_open_issues(),
+            "active_decisions":    self.shared_memory.get_decisions(status="active"),
+            "active_constraints":  self.shared_memory.get_active_constraints(),
+        }
+
+    def _process_note(
+        self,
+        note_text: str,
+        agent_id: str,
+        context: Optional[dict] = None,
+    ) -> PromotionResult:
         """
         Run a single note through interpret → validate → write.
+        Context is passed to both interpreter and validator.
         Returns a PromotionResult. Never raises.
         """
         try:
             write_request: WriteRequest = self.interpreter.interpret(
                 candidate_note=note_text,
                 agent_id=agent_id,
+                context=context,
             )
         except Exception as exc:
             logger.exception("[promotion] Interpreter raised unexpectedly: %s", exc)
@@ -154,7 +193,7 @@ class PromotionPipeline:
 
         # ── Accepted — now validate ───────────────────────────────────
         try:
-            self.validator.validate(write_request)
+            self.validator.validate(write_request, context=context)
         except ValidationError as ve:
             logger.warning(
                 "[promotion] Validation failed for note (bucket=%s): %s",

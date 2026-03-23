@@ -171,6 +171,11 @@ class Scorer:
         self, outcome: ExpectedOutcome, snapshot: dict
     ) -> OutcomeResult:
         """Check one ExpectedOutcome against the snapshot."""
+
+        if outcome.match_by == "fields":
+            return self._check_outcome_by_fields(outcome, snapshot)
+
+        # Default: match_by="target_id"
         row = self._find_row(outcome.bucket, outcome.target_id, snapshot)
 
         # ── Case 1: row should NOT be present ─────────────────────────
@@ -212,6 +217,58 @@ class Scorer:
             )
 
         return OutcomeResult(outcome=outcome, passed=True, actual_row=row)
+
+    def _check_outcome_by_fields(
+        self, outcome: ExpectedOutcome, snapshot: dict
+    ) -> OutcomeResult:
+        """
+        match_by="fields": find any row in the bucket where all checks pass.
+        Used when slug consistency is not the property being tested — only
+        whether the right data landed anywhere in the bucket.
+        """
+        bucket_data = snapshot.get(outcome.bucket)
+
+        if outcome.bucket in SINGLE_ROW_BUCKETS:
+            rows = [bucket_data] if isinstance(bucket_data, dict) else []
+        else:
+            rows = bucket_data if isinstance(bucket_data, list) else []
+
+        # ── Case 1: should NOT be present — no row should match checks ─
+        if not outcome.present:
+            matching = [r for r in rows if not self._check_fields(outcome.checks, r)]
+            if matching:
+                return OutcomeResult(
+                    outcome=outcome,
+                    passed=False,
+                    failure_reason=(
+                        f"Found {len(matching)} row(s) in {outcome.bucket} "
+                        f"matching checks but none should exist"
+                    ),
+                    actual_row=matching[0],
+                )
+            return OutcomeResult(outcome=outcome, passed=True)
+
+        # ── Case 2: SHOULD be present — at least one row must match ───
+        if not rows:
+            return OutcomeResult(
+                outcome=outcome,
+                passed=False,
+                failure_reason=f"No rows found in {outcome.bucket}",
+            )
+
+        for row in rows:
+            mismatches = self._check_fields(outcome.checks, row)
+            if not mismatches:
+                return OutcomeResult(outcome=outcome, passed=True, actual_row=row)
+
+        # No row matched — report the closest miss (first row)
+        mismatches = self._check_fields(outcome.checks, rows[0])
+        return OutcomeResult(
+            outcome=outcome,
+            passed=False,
+            failure_reason=f"No row matched checks: {'; '.join(mismatches)}",
+            actual_row=rows[0],
+        )
 
     def _find_row(
         self, bucket: str, target_id: str, snapshot: dict

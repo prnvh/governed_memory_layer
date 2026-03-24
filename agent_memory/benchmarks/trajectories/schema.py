@@ -83,18 +83,58 @@ class ExpectedOutcome:
 
 
 @dataclass
+class FaultInjectionConfig:
+    """
+    Declarative fault injection spec for Family F (replay/projection robustness).
+
+    Carried by the Trajectory and read by a FaultInjectionHarness that wraps
+    the Inputter to simulate projection failures at controlled points.
+
+    Fields:
+        fail_at_note_indices — zero-based indices into trajectory.notes at which
+                               the view write should fail (ledger row still commits,
+                               applied_successfully=0). E.g. [2, 5] fails the
+                               view writes for notes 2 and 5.
+        fail_mode            — "view_write_failure": SharedMemoryWriter raises,
+                               Inputter catches, sets applied_successfully=0.
+                               Default and only supported mode in V1.
+        replay_and_verify    — if True, the harness should replay events_memory
+                               after the run and verify the reconstructed canonical
+                               state matches the expected_outcomes. Tests that the
+                               event ledger is sufficient for full recovery.
+
+    Usage: only set on Family F trajectories. Ignored by GovernedMemoryHarness.
+    The FaultInjectionHarness reads this field and injects failures accordingly.
+    """
+    fail_at_note_indices: list[int] = field(default_factory=list)
+    fail_mode: str = "view_write_failure"  # only supported mode in V1
+    replay_and_verify: bool = True
+
+
+@dataclass
 class Trajectory:
     """
     A complete benchmark trajectory: notes in, expected shared memory state out.
 
     Fields:
-        id              — unique identifier, snake_case
-        description     — one sentence explaining what this trajectory tests
-        agent_id        — the agent identity to use when running (affects source_agent in events)
-        notes           — ordered sequence of notes to add to WorkingMemory
-        expected_outcomes — assertions the scorer will evaluate after the run
-        tags            — optional labels for grouping/filtering trajectories
-                          e.g. ["clean", "noisy", "contradiction", "multi_bucket"]
+        id                — unique identifier, snake_case
+        description       — one sentence explaining what this trajectory tests
+        agent_id          — agent identity used when running (affects source_agent in events)
+        notes             — ordered sequence of notes to add to WorkingMemory
+        expected_outcomes — positive assertions: rows the scorer must find after the run
+        forbidden_outcomes — negative assertions: rows that must NOT exist after the run.
+                             These are checked independently of expected_outcomes.
+                             Use for noise-heavy trajectories (A3, A4, D4) where FP
+                             detection is load-bearing and snapshot-diffing is insufficient.
+                             Same ExpectedOutcome shape with present=False semantics;
+                             the scorer treats any match as a FP and records it separately
+                             from the FN count derived from expected_outcomes misses.
+        tags              — labels for grouping/filtering:
+                            family (a|b|c|d|e|f), difficulty (l1–l4),
+                            domain (software|ml|ops|policy), dominant failure mode
+        fault_injection   — Family F only. Declarative spec for controlled projection
+                            failures. Ignored by GovernedMemoryHarness; read by
+                            FaultInjectionHarness. None on all non-F trajectories.
 
     The harness feeds all notes into a single WorkingMemory instance and runs
     the promotion pipeline once (trigger="end_of_step") after all notes are added.
@@ -105,5 +145,7 @@ class Trajectory:
     description: str
     notes: list[TrajectoryNote]
     expected_outcomes: list[ExpectedOutcome]
+    forbidden_outcomes: list[ExpectedOutcome] = field(default_factory=list)
     agent_id: str = "benchmark_agent"
     tags: list[str] = field(default_factory=list)
+    fault_injection: Optional[FaultInjectionConfig] = None

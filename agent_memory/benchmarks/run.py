@@ -29,9 +29,9 @@ from rich.console import Console
 from rich.table import Table
 from rich import box
 
-from benchmarks.harness import GovernedMemoryHarness
+from benchmarks.harness import GovernedMemoryHarness, FaultInjectionHarness
 from benchmarks.scorer import Scorer, TrajectoryScore
-from benchmarks.trajectories.examples import ALL_TRAJECTORIES
+from benchmarks.trajectories import ALL_TRAJECTORIES
 from benchmarks.trajectories.schema import Trajectory
 
 load_dotenv()
@@ -86,7 +86,7 @@ def print_header(trajectories: list[Trajectory]) -> None:
         f"  Trajectories : [cyan]{len(trajectories)}[/cyan]"
     )
     console.print(
-        f"  System       : [cyan]governed[/cyan]"
+        f"  System       : [cyan]governed variants[/cyan]"
     )
     console.print()
 
@@ -236,7 +236,6 @@ def main() -> None:
     check_api_key()
 
     trajectories = select_trajectories(args.trajectory)
-    harness = GovernedMemoryHarness()
     scorer = Scorer()
     run_timestamp = datetime.now(timezone.utc).isoformat()
 
@@ -247,6 +246,11 @@ def main() -> None:
     for trajectory in trajectories:
         console.print(f"[dim]Running[/dim] {trajectory.id} ...", end=" ")
 
+        harness = (
+            FaultInjectionHarness()
+            if trajectory.fault_injection is not None
+            else GovernedMemoryHarness()
+        )
         harness_result = harness.run_trajectory(trajectory)
 
         if harness_result.error:

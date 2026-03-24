@@ -132,6 +132,10 @@ class Scorer:
             result = self._check_outcome(outcome, snapshot)
             outcome_results.append(result)
 
+        for outcome in trajectory.forbidden_outcomes:
+            result = self._check_outcome(outcome, snapshot)
+            outcome_results.append(result)
+
         total = len(outcome_results)
         passed = sum(1 for r in outcome_results if r.passed)
         failed = total - passed

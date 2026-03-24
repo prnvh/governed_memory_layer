@@ -26,7 +26,7 @@ Design:
 import logging
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from memory.db.schema import init_db
@@ -256,3 +256,155 @@ class GovernedMemoryHarness(BaseHarness):
             rejected_count=rejected_count,
             run_duration_seconds=elapsed,
         )
+
+
+class FaultInjectionWriter(SharedMemoryWriter):
+    """
+    SharedMemoryWriter wrapper that can fail selected note indices on demand.
+    """
+
+    def __init__(self, conn, fail_at_note_indices: set[int]):
+        super().__init__(conn)
+        self.fail_at_note_indices = fail_at_note_indices
+        self.current_note_index: int | None = None
+
+    def write(self, event: dict) -> bool:
+        if self.current_note_index in self.fail_at_note_indices:
+            raise RuntimeError(
+                f"simulated projection failure at note index {self.current_note_index}"
+            )
+        return super().write(event)
+
+
+class FaultInjectionHarness(BaseHarness):
+    """
+    Governed harness variant for Family F trajectories.
+
+    It simulates projection failures on selected note indices, then optionally
+    reconstructs canonical state by replaying the event ledger into a fresh DB.
+    """
+
+    def __init__(self, model: str = "gpt-4.1"):
+        self.model = model
+
+    @property
+    def system_name(self) -> str:
+        return "governed_fault_injected"
+
+    def run_trajectory(self, trajectory: Trajectory) -> HarnessResult:
+        start = time.perf_counter()
+
+        try:
+            conn = get_connection(":memory:")
+            init_db(conn)
+
+            fault_config = trajectory.fault_injection
+            fail_at = set(fault_config.fail_at_note_indices if fault_config else [])
+
+            interpreter = Interpreter(model=self.model)
+            validator = Validator()
+            writer = FaultInjectionWriter(conn, fail_at)
+            inputter = Inputter(conn, writer)
+            shared_memory = SharedMemory(conn)
+            pipeline = PromotionPipeline(
+                interpreter, validator, inputter, shared_memory=shared_memory
+            )
+
+            wm = WorkingMemory(
+                agent_id=trajectory.agent_id,
+                run_id=trajectory.id,
+            )
+            for note in trajectory.notes:
+                if note.source == "tool_result" and note.tool_name:
+                    wm.add_tool_result_note(note.tool_name, note.text)
+                else:
+                    wm.add_note(note.text, source=note.source)
+
+            candidates = wm.get_promotion_candidates()
+            promotion_results: list[PromotionResult] = []
+            promoted_indices: list[int] = []
+
+            for idx, note in enumerate(candidates):
+                writer.current_note_index = idx
+                context = pipeline._build_context()
+                result = pipeline._process_note(
+                    note_text=note["text"],
+                    agent_id=wm.agent_id,
+                    context=context,
+                )
+                promotion_results.append(result)
+                promoted_indices.append(idx)
+
+            wm.mark_promoted(promoted_indices)
+
+            snapshot = shared_memory.snapshot()
+            if fault_config and fault_config.replay_and_verify:
+                snapshot = self._replay_snapshot(conn)
+
+            events_written = conn.execute(
+                "SELECT COUNT(*) FROM events_memory"
+            ).fetchone()[0]
+            conn.close()
+
+        except Exception as exc:
+            elapsed = time.perf_counter() - start
+            logger.exception(
+                "[fault-harness] Trajectory '%s' failed: %s", trajectory.id, exc
+            )
+            return HarnessResult(
+                trajectory_id=trajectory.id,
+                system_name=self.system_name,
+                snapshot={},
+                note_outcomes=[],
+                events_written=0,
+                accepted_count=0,
+                rejected_count=0,
+                run_duration_seconds=elapsed,
+                error=str(exc),
+            )
+
+        elapsed = time.perf_counter() - start
+        note_outcomes = [
+            NoteOutcome(
+                note_text=r.note_text,
+                decision=r.decision,
+                bucket=r.bucket,
+                event_id=r.event_id,
+                rationale=r.rationale,
+            )
+            for r in promotion_results
+        ]
+        accepted_count = sum(1 for r in promotion_results if r.decision == "accept")
+        rejected_count = sum(1 for r in promotion_results if r.decision == "reject")
+
+        return HarnessResult(
+            trajectory_id=trajectory.id,
+            system_name=self.system_name,
+            snapshot=snapshot,
+            note_outcomes=note_outcomes,
+            events_written=events_written,
+            accepted_count=accepted_count,
+            rejected_count=rejected_count,
+            run_duration_seconds=elapsed,
+        )
+
+    def _replay_snapshot(self, conn) -> dict:
+        replay_conn = get_connection(":memory:")
+        init_db(replay_conn)
+        replay_writer = SharedMemoryWriter(replay_conn)
+
+        rows = conn.execute(
+            """
+            SELECT event_id, timestamp, source_agent, bucket, target_id,
+                   operation, payload_json
+            FROM events_memory
+            ORDER BY timestamp ASC
+            """
+        ).fetchall()
+
+        for row in rows:
+            replay_writer.write(dict(row))
+
+        snapshot = SharedMemory(replay_conn).snapshot()
+        replay_conn.close()
+        return snapshot

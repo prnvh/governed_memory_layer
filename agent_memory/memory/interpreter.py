@@ -6,6 +6,7 @@
 import json
 import logging
 import os
+import re
 from typing import Any, Literal, Optional
 
 import openai
@@ -107,6 +108,17 @@ Reject if:
         Context should contain relevant current state — currently open issues.
         Returns ONE WriteRequest (accept or reject).
         """
+        heuristic = self._heuristic_structured_write(candidate_note)
+        if heuristic is not None:
+            logger.info(
+                "Interpreter [%s] -> %s | bucket=%s | rationale=%s",
+                agent_id,
+                heuristic.decision,
+                heuristic.bucket,
+                heuristic.rationale,
+            )
+            return heuristic
+
         context_block = ""
         if context:
             sections = []
@@ -190,3 +202,89 @@ Reject if:
             rationale = f"parse_error: {type(e).__name__}: {e}"
             logger.warning("Interpreter [%s] error: %s", agent_id, rationale)
             return WriteRequest(decision="reject", rationale=rationale)
+
+    def _heuristic_structured_write(self, candidate_note: str) -> Optional[WriteRequest]:
+        """
+        Fast path for extremely explicit structured notes. This avoids spending an
+        LLM call on obvious state-bearing notes and reduces false rejects on
+        straightforward updates like plans, learnings, and explicit task-state
+        transitions. Lifecycle-heavy notes such as constraints and decisions are
+        intentionally left to the LLM so they can use shared-memory context.
+        """
+        text = candidate_note.strip()
+        lowered = text.lower()
+
+        if lowered.startswith("plan:") or lowered.startswith("plan for "):
+            return WriteRequest(
+                decision="accept",
+                bucket="plan",
+                target_id="main",
+                operation="upsert",
+                payload={"plan_json": text.split(":", 1)[1].strip() if ":" in text else text},
+                rationale="heuristic_plan",
+            )
+
+        if "learning:" in lowered:
+            statement = text.split("Learning:", 1)[1].strip()
+            return WriteRequest(
+                decision="accept",
+                bucket="learnings",
+                target_id=self._slugify_local(statement, "learning"),
+                operation="append",
+                payload={
+                    "statement": statement,
+                    "title": statement[:80] if statement else "Learning",
+                    "category": None,
+                    "confidence": None,
+                    "source_issue_id": None,
+                },
+                rationale="heuristic_learning",
+            )
+
+        issue_like_note = any(
+            phrase in lowered for phrase in (
+                " is open",
+                " issue is open",
+                " incident is open",
+                " blocker is open",
+                " is resolved",
+                " incident is resolved",
+                " incident is closed",
+            )
+        )
+        if issue_like_note:
+            return None
+
+        status = None
+        if re.search(r"\bis now in progress\b|\bin progress\b|\bkicked off\b", lowered):
+            status = "in_progress"
+        elif re.search(r"\btask is blocked\b|\bblocked pending\b|\bcannot proceed\b", lowered):
+            status = "blocked"
+        elif re.search(
+            r"\bis done\b|\btask is done\b|\btask is complete\b|\btask complete\b|"
+            r"\bincident closed\b|\bcomplete\.\b",
+            lowered,
+        ):
+            status = "done"
+
+        if status is None:
+            return None
+
+        return WriteRequest(
+            decision="accept",
+            bucket="task_state",
+            target_id="main",
+            operation="upsert",
+            payload={
+                "status": status,
+                "phase": None,
+                "blockers_json": None,
+            },
+            rationale="heuristic_task_state",
+        )
+
+    def _slugify_local(self, text: str, prefix: str) -> str:
+        slug = re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
+        if not slug:
+            slug = "item"
+        return f"{prefix}_{slug[:40]}"

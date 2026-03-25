@@ -121,12 +121,37 @@ A1_SOFTWARE_02 = Trajectory(
     ],
     expected_outcomes=[
         ExpectedOutcome(bucket="plan", target_id="main", present=True, match_by="target_id", checks={}),
-        ExpectedOutcome(bucket="constraints", target_id="", present=True, match_by="fields", checks={"status": "active"}),
-        ExpectedOutcome(bucket="decisions", target_id="", present=True, match_by="fields", checks={"status": "active"}),
+        ExpectedOutcome(
+            bucket="constraints",
+            target_id="",
+            present=True,
+            match_by="fields",
+            checks={
+                "status": "active",
+                "text": "do not merge any PRs to main until CI is green and stable for at least 3 consecutive runs.",
+            },
+        ),
+        ExpectedOutcome(
+            bucket="decisions",
+            target_id="",
+            present=True,
+            match_by="fields",
+            checks={
+                "status": "active",
+                "statement": "quarantine it to the nightly suite only, remove from PR gate.",
+            },
+        ),
     ],
     forbidden_outcomes=[
         ExpectedOutcome(bucket="results", target_id="", present=False, match_by="fields", checks={"metric_name": "ci_duration"}),
         ExpectedOutcome(bucket="issues", target_id="ci_pass", present=False, match_by="target_id"),
+        ExpectedOutcome(
+            bucket="issues",
+            target_id="",
+            present=False,
+            match_by="fields",
+            checks={"title": "ci run completed on latest main", "status": "open"},
+        ),
     ],
 )
 
@@ -159,12 +184,37 @@ A1_SOFTWARE_03 = Trajectory(
         ),
     ],
     expected_outcomes=[
-        ExpectedOutcome(bucket="constraints", target_id="", present=True, match_by="fields", checks={"status": "active"}),
-        ExpectedOutcome(bucket="learnings", target_id="", present=True, match_by="fields", checks={"status": "active"}),
+        ExpectedOutcome(
+            bucket="constraints",
+            target_id="",
+            present=True,
+            match_by="fields",
+            checks={
+                "status": "active",
+                "text": "all user-supplied filenames must be sanitized before use in any file operation. No exceptions.",
+            },
+        ),
+        ExpectedOutcome(
+            bucket="learnings",
+            target_id="",
+            present=True,
+            match_by="fields",
+            checks={
+                "status": "active",
+                "statement": "file operation endpoints must sanitize user-supplied path components. This should be a standard item in the code review checklist.",
+            },
+        ),
     ],
     forbidden_outcomes=[
         ExpectedOutcome(bucket="issues", target_id="path_traversal", present=False, match_by="target_id"),
         ExpectedOutcome(bucket="issues", target_id="path_traversal_incident", present=False, match_by="target_id"),
+        ExpectedOutcome(
+            bucket="learnings",
+            target_id="",
+            present=False,
+            match_by="fields",
+            checks={"statement": "This might also connect to the path traversal incident from last quarter, but I'm not sure â€” probably unrelated.", "status": "active"},
+        ),
     ],
 )
 
@@ -354,12 +404,22 @@ A1_ML_04 = Trajectory(
         ),
     ],
     expected_outcomes=[
-        ExpectedOutcome(bucket="decisions", target_id="", present=True, match_by="fields", checks={"status": "active"}),
+        ExpectedOutcome(
+            bucket="decisions",
+            target_id="",
+            present=True,
+            match_by="fields",
+            checks={
+                "status": "active",
+                "statement": "use LR=3e-5 for all subsequent runs of this model family.",
+            },
+        ),
         # PATCHED: checks={} — metric_name string is a naming choice, not correctness signal
-        ExpectedOutcome(bucket="results", target_id="", present=True, match_by="fields", checks={}),
+        ExpectedOutcome(bucket="results", target_id="", present=True, match_by="fields", checks={"metric_value": "0.834"}),
     ],
     forbidden_outcomes=[
         ExpectedOutcome(bucket="results", target_id="", present=False, match_by="fields", checks={"metric_name": "checkpoint_accuracy"}),
+        ExpectedOutcome(bucket="results", target_id="", present=False, match_by="fields", checks={"metric_value": "0.812"}),
     ],
 )
 
@@ -469,11 +529,36 @@ A1_OPS_03 = Trajectory(
         ),
     ],
     expected_outcomes=[
-        ExpectedOutcome(bucket="constraints", target_id="", present=True, match_by="fields", checks={"status": "active"}),
-        ExpectedOutcome(bucket="decisions", target_id="", present=True, match_by="fields", checks={"status": "active"}),
+        ExpectedOutcome(
+            bucket="constraints",
+            target_id="",
+            present=True,
+            match_by="fields",
+            checks={
+                "status": "active",
+                "text": "no production deployments between Friday 17:00 and Monday 09:00. Change freeze window per operations policy.",
+            },
+        ),
+        ExpectedOutcome(
+            bucket="decisions",
+            target_id="",
+            present=True,
+            match_by="fields",
+            checks={
+                "status": "active",
+                "statement": "schedule v2.4.1 release for Tuesday 10:00 to clear the weekend freeze window and allow Monday QA sign-off.",
+            },
+        ),
     ],
     forbidden_outcomes=[
         ExpectedOutcome(bucket="results", target_id="", present=False, match_by="fields", checks={"metric_name": "preflight_check"}),
+        ExpectedOutcome(
+            bucket="results",
+            target_id="",
+            present=False,
+            match_by="fields",
+            checks={"metric_value": "passed"},
+        ),
     ],
 )
 
@@ -497,12 +582,32 @@ A1_OPS_04 = Trajectory(
         ),
     ],
     expected_outcomes=[
-        ExpectedOutcome(bucket="decisions", target_id="", present=True, match_by="fields", checks={"status": "active"}),
-        ExpectedOutcome(bucket="learnings", target_id="", present=True, match_by="fields", checks={"status": "active"}),
+        ExpectedOutcome(
+            bucket="decisions",
+            target_id="",
+            present=True,
+            match_by="fields",
+            checks={
+                "status": "active",
+                "statement": "rotate on-call responsibility weekly between three engineers. No engineer on-call more than one week per month.",
+            },
+        ),
+        ExpectedOutcome(
+            bucket="learnings",
+            target_id="",
+            present=True,
+            match_by="fields",
+            checks={
+                "status": "active",
+                "statement": "the Q3 incident response delay was caused by a single engineer on-call for three consecutive weeks without backup. The rotation policy prevents this recurrence.",
+            },
+        ),
     ],
     forbidden_outcomes=[
         ExpectedOutcome(bucket="decisions", target_id="noted", present=False, match_by="target_id"),
         ExpectedOutcome(bucket="issues", target_id="noted", present=False, match_by="target_id"),
+        ExpectedOutcome(bucket="decisions", target_id="", present=False, match_by="fields", checks={"statement": "Noted.", "status": "active"}),
+        ExpectedOutcome(bucket="learnings", target_id="", present=False, match_by="fields", checks={"statement": "Noted.", "status": "active"}),
     ],
 )
 
@@ -571,12 +676,31 @@ A1_POLICY_02 = Trajectory(
         ),
     ],
     expected_outcomes=[
-        ExpectedOutcome(bucket="constraints", target_id="", present=True, match_by="fields", checks={"status": "active"}),
-        ExpectedOutcome(bucket="decisions", target_id="", present=True, match_by="fields", checks={"status": "active"}),
+        ExpectedOutcome(
+            bucket="constraints",
+            target_id="",
+            present=True,
+            match_by="fields",
+            checks={
+                "status": "active",
+                "text": "all internal admin portals must enforce MFA by end of Q2. This is a mandatory security requirement.",
+            },
+        ),
+        ExpectedOutcome(
+            bucket="decisions",
+            target_id="",
+            present=True,
+            match_by="fields",
+            checks={
+                "status": "active",
+                "statement": "use TOTP-based MFA rather than SMS MFA.",
+            },
+        ),
     ],
     forbidden_outcomes=[
         ExpectedOutcome(bucket="task_state", target_id="minutes_filed", present=False, match_by="target_id"),
         ExpectedOutcome(bucket="decisions", target_id="minutes_filed", present=False, match_by="target_id"),
+        ExpectedOutcome(bucket="decisions", target_id="", present=False, match_by="fields", checks={"statement": "Security review board meeting concluded. Minutes filed.", "status": "active"}),
     ],
 )
 
@@ -606,11 +730,21 @@ A1_POLICY_03 = Trajectory(
         ),
     ],
     expected_outcomes=[
-        ExpectedOutcome(bucket="learnings", target_id="", present=True, match_by="fields", checks={"status": "active"}),
+        ExpectedOutcome(
+            bucket="learnings",
+            target_id="",
+            present=True,
+            match_by="fields",
+            checks={
+                "status": "active",
+                "statement": "quarterly access audits are necessary to catch privilege creep. Ad-hoc access grants accumulate over time without formal review cycles.",
+            },
+        ),
     ],
     forbidden_outcomes=[
         ExpectedOutcome(bucket="task_state", target_id="checking_roles", present=False, match_by="target_id"),
         ExpectedOutcome(bucket="issues", target_id="checking_roles", present=False, match_by="target_id"),
+        ExpectedOutcome(bucket="learnings", target_id="", present=False, match_by="fields", checks={"statement": "Checking current role assignments for the data engineering team.", "status": "active"}),
     ],
 )
 
@@ -821,12 +955,31 @@ A2_ML_02 = Trajectory(
         TrajectoryNote(text="Result for exp_015 feature ablation: 10-feature model val_AUC=0.891.", source="agent"),
     ],
     expected_outcomes=[
-        ExpectedOutcome(bucket="decisions", target_id="", present=True, match_by="fields", checks={"status": "active"}),
+        ExpectedOutcome(
+            bucket="decisions",
+            target_id="",
+            present=True,
+            match_by="fields",
+            checks={
+                "status": "active",
+                "statement": "use top 10 features only for all runs in this project. The 0.002 AUC difference does not justify 32 extra features in production.",
+            },
+        ),
         ExpectedOutcome(bucket="results", target_id="", present=True, match_by="fields", checks={"metric_name": "val_auc"}),
     ],
     forbidden_outcomes=[
         ExpectedOutcome(bucket="decisions", target_id="might_be_good_idea", present=False, match_by="target_id"),
         ExpectedOutcome(bucket="decisions", target_id="edge_cases", present=False, match_by="target_id"),
+        ExpectedOutcome(
+            bucket="decisions",
+            target_id="",
+            present=False,
+            match_by="fields",
+            checks={
+                "statement": "It seems like reducing to 10 features might be a good idea, though there could be edge cases where the others help.",
+                "status": "active",
+            },
+        ),
     ],
 )
 
@@ -874,12 +1027,31 @@ A2_ML_04 = Trajectory(
         TrajectoryNote(text="Training completed successfully. OOM issue resolved.", source="tool_result", tool_name="train"),
     ],
     expected_outcomes=[
-        ExpectedOutcome(bucket="constraints", target_id="", present=True, match_by="fields", checks={"status": "active"}),
-        ExpectedOutcome(bucket="decisions", target_id="", present=True, match_by="fields", checks={"status": "active"}),
+        ExpectedOutcome(
+            bucket="constraints",
+            target_id="",
+            present=True,
+            match_by="fields",
+            checks={
+                "status": "active",
+                "text": "batch size for this model on this GPU must not exceed 8. The model requires 2.1GB at batch size 8, within the 4GB available.",
+            },
+        ),
+        ExpectedOutcome(
+            bucket="decisions",
+            target_id="",
+            present=True,
+            match_by="fields",
+            checks={
+                "status": "active",
+                "statement": "reduce batch size to 8 and use gradient accumulation over 4 steps to maintain effective batch size of 32.",
+            },
+        ),
     ],
     forbidden_outcomes=[
         ExpectedOutcome(bucket="issues", target_id="", present=False, match_by="fields", checks={"title": "training failed again", "status": "open"}),
         ExpectedOutcome(bucket="issues", target_id="oom_again", present=False, match_by="target_id"),
+        ExpectedOutcome(bucket="learnings", target_id="", present=False, match_by="fields", checks={"statement": "The training is OOM-ing. We need to reduce memory usage somehow.", "status": "active"}),
     ],
 )
 
@@ -936,11 +1108,21 @@ A2_OPS_02 = Trajectory(
     ],
     expected_outcomes=[
         ExpectedOutcome(bucket="plan", target_id="main", present=True, match_by="target_id", checks={}),
-        ExpectedOutcome(bucket="constraints", target_id="", present=True, match_by="fields", checks={"status": "active"}),
+        ExpectedOutcome(
+            bucket="constraints",
+            target_id="",
+            present=True,
+            match_by="fields",
+            checks={
+                "status": "active",
+                "text": "at least one on-call engineer must respond to P1 incidents within 15 minutes, 24/7.",
+            },
+        ),
     ],
     forbidden_outcomes=[
         ExpectedOutcome(bucket="issues", target_id="coverage_gap_review", present=False, match_by="target_id"),
         ExpectedOutcome(bucket="constraints", target_id="sla_context", present=False, match_by="target_id"),
+        ExpectedOutcome(bucket="issues", target_id="", present=False, match_by="fields", checks={"title": "coverage gap identified", "status": "open"}),
     ],
 )
 
@@ -988,11 +1170,30 @@ A2_OPS_04 = Trajectory(
         TrajectoryNote(text="Reserved instance purchase approved by finance. Conversion scheduled.", source="tool_result", tool_name="aws_console"),
     ],
     expected_outcomes=[
-        ExpectedOutcome(bucket="decisions", target_id="", present=True, match_by="fields", checks={"status": "active"}),
+        ExpectedOutcome(
+            bucket="decisions",
+            target_id="",
+            present=True,
+            match_by="fields",
+            checks={
+                "status": "active",
+                "statement": "convert the 18 long-running EC2 instances to 1-year reserved instances. Expected savings: $9,800/month.",
+            },
+        ),
     ],
     forbidden_outcomes=[
         ExpectedOutcome(bucket="decisions", target_id="might_save", present=False, match_by="target_id"),
         ExpectedOutcome(bucket="results", target_id="", present=False, match_by="fields", checks={"metric_name": "monthly_aws_spend"}),
+        ExpectedOutcome(
+            bucket="decisions",
+            target_id="",
+            present=False,
+            match_by="fields",
+            checks={
+                "statement": "Reserved instances would be cheaper for consistently running workloads. Might save 30-40%.",
+                "status": "active",
+            },
+        ),
     ],
 )
 
@@ -1049,11 +1250,27 @@ A2_POLICY_02 = Trajectory(
         TrajectoryNote(text="So the vendor assessment is done and they're approved at Tier 2.", source="agent"),
     ],
     expected_outcomes=[
-        ExpectedOutcome(bucket="decisions", target_id="", present=True, match_by="fields", checks={"status": "active"}),
+        ExpectedOutcome(
+            bucket="decisions",
+            target_id="",
+            present=True,
+            match_by="fields",
+            checks={
+                "status": "active",
+                "statement": "classify this vendor as Tier 2 (standard risk). Full security review required annually. No further blocking items.",
+            },
+        ),
     ],
     forbidden_outcomes=[
         ExpectedOutcome(bucket="results", target_id="soc2_clean", present=False, match_by="target_id"),
         ExpectedOutcome(bucket="constraints", target_id="data_residency_eu", present=False, match_by="target_id"),
+        ExpectedOutcome(
+            bucket="decisions",
+            target_id="",
+            present=False,
+            match_by="fields",
+            checks={"statement": "So the vendor assessment is done and they're approved at Tier 2.", "status": "active"},
+        ),
     ],
 )
 
@@ -1100,13 +1317,38 @@ A2_POLICY_04 = Trajectory(
         TrajectoryNote(text="Engineering ticket created. Banner rebuild is in progress.", source="tool_result", tool_name="ticketing"),
     ],
     expected_outcomes=[
-        ExpectedOutcome(bucket="constraints", target_id="", present=True, match_by="fields", checks={"status": "active"}),
-        ExpectedOutcome(bucket="decisions", target_id="", present=True, match_by="fields", checks={"status": "active"}),
+        ExpectedOutcome(
+            bucket="constraints",
+            target_id="",
+            present=True,
+            match_by="fields",
+            checks={
+                "status": "active",
+                "text": "all non-essential cookies must be opt-in only. No pre-ticked checkboxes. No cookies set before explicit consent.",
+            },
+        ),
+        ExpectedOutcome(
+            bucket="decisions",
+            target_id="",
+            present=True,
+            match_by="fields",
+            checks={
+                "status": "active",
+                "statement": "rebuild the consent banner using an opt-in-only architecture. Deadline: 30 days from today.",
+            },
+        ),
     ],
     forbidden_outcomes=[
         ExpectedOutcome(bucket="constraints", target_id="pecr_2003", present=False, match_by="target_id"),
         ExpectedOutcome(bucket="constraints", target_id="ico_enforcement", present=False, match_by="target_id"),
         ExpectedOutcome(bucket="decisions", target_id="ico_renewal_check", present=False, match_by="target_id"),
+        ExpectedOutcome(
+            bucket="constraints",
+            target_id="",
+            present=False,
+            match_by="fields",
+            checks={"text": "PECR was enacted in 2003 and amended in 2011. It requires informed consent for non-essential cookies.", "status": "active"},
+        ),
     ],
 )
 

@@ -65,6 +65,15 @@ class SharedMemory:
         )
         return self._rows_to_dicts(cursor.fetchall())
 
+    def get_all_constraints(self) -> list[dict]:
+        """
+        Return all constraints regardless of status (active, invalidated).
+        For benchmark evaluation and provenance - not regular agent use.
+        Agents should use get_active_constraints() instead.
+        """
+        cursor = self.conn.execute("SELECT * FROM shared_constraints")
+        return self._rows_to_dicts(cursor.fetchall())
+
     # ------------------------------------------------------------------
     # Issues
     # ------------------------------------------------------------------
@@ -257,7 +266,7 @@ class SharedMemory:
         """
         return {
             "plan":        self.get_plan(),
-            "constraints": self.get_active_constraints(),
+            "constraints": self.get_all_constraints(),
             "issues":      self.get_all_issues(),
             "decisions":   self.get_all_decisions(),
             "results":     self.get_results(),

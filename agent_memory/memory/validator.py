@@ -118,8 +118,7 @@ class Validator:
                     f"payload for bucket '{write_request.bucket}' is missing required fields: {missing}"
                 )
 
-        # 7. For resolve on issues: target_id must exist as an open issue in context.
-        # Without this check, the interpreter could resolve a non-existent issue.
+        # 7. Lifecycle updates must target an existing active row in context.
         if write_request.operation == "resolve" and write_request.bucket == "issues":
             if context is not None:
                 open_issues = context.get("open_issues", [])
@@ -128,6 +127,26 @@ class Validator:
                     raise ValidationError(
                         f"resolve target '{write_request.target_id}' does not match any "
                         f"open issue in context. Known open issue ids: {sorted(known_ids)}"
+                    )
+        if write_request.operation == "invalidate" and write_request.bucket == "decisions":
+            if context is not None:
+                active_decisions = context.get("active_decisions", [])
+                known_ids = {decision.get("decision_id") for decision in active_decisions}
+                if write_request.target_id not in known_ids:
+                    raise ValidationError(
+                        f"invalidate target '{write_request.target_id}' does not match any "
+                        f"active decision in context. Known active decision ids: {sorted(known_ids)}"
+                    )
+        if write_request.operation == "invalidate" and write_request.bucket == "constraints":
+            if context is not None:
+                active_constraints = context.get("active_constraints", [])
+                known_ids = {
+                    constraint.get("constraint_id") for constraint in active_constraints
+                }
+                if write_request.target_id not in known_ids:
+                    raise ValidationError(
+                        f"invalidate target '{write_request.target_id}' does not match any "
+                        f"active constraint in context. Known active constraint ids: {sorted(known_ids)}"
                     )
 
         logger.debug(

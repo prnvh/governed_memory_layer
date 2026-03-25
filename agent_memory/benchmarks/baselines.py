@@ -497,6 +497,7 @@ class StatelessClassifierHarness(BaseHarness):
                 note_outcomes=[],
                 events_written=0,
                 accepted_count=0,
+                provisional_count=0,
                 rejected_count=0,
                 run_duration_seconds=elapsed,
                 error=str(exc),
@@ -521,6 +522,7 @@ class StatelessClassifierHarness(BaseHarness):
             note_outcomes=note_outcomes,
             events_written=events_written,
             accepted_count=sum(1 for r in promotion_results if r.decision == "accept"),
+            provisional_count=sum(1 for r in promotion_results if r.decision == "provisional"),
             rejected_count=sum(1 for r in promotion_results if r.decision == "reject"),
             run_duration_seconds=elapsed,
         )
@@ -630,6 +632,7 @@ class AppendAllMemoryHarness(BaseHarness):
                 note_outcomes=[],
                 events_written=0,
                 accepted_count=0,
+                provisional_count=0,
                 rejected_count=0,
                 run_duration_seconds=elapsed,
                 error=str(exc),
@@ -654,6 +657,7 @@ class AppendAllMemoryHarness(BaseHarness):
             note_outcomes=note_outcomes,
             events_written=events_written,
             accepted_count=sum(1 for r in promotion_results if r.decision == "accept"),
+            provisional_count=0,
             rejected_count=sum(1 for r in promotion_results if r.decision == "reject"),
             run_duration_seconds=elapsed,
         )
@@ -708,6 +712,7 @@ class ScratchpadMemoryHarness(BaseHarness):
                 note_outcomes=[],
                 events_written=0,
                 accepted_count=0,
+                provisional_count=0,
                 rejected_count=0,
                 run_duration_seconds=elapsed,
                 error=str(exc),
@@ -721,6 +726,7 @@ class ScratchpadMemoryHarness(BaseHarness):
             note_outcomes=note_outcomes,
             events_written=0,
             accepted_count=len(note_outcomes),
+            provisional_count=0,
             rejected_count=0,
             run_duration_seconds=elapsed,
         )

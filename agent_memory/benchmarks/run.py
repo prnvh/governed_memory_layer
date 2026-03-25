@@ -112,7 +112,7 @@ def print_trajectory_result(
     console.print(
         f"[bold]{score.trajectory_id}[/bold]  "
         f"[{governance_color}]{score.governance_accuracy:.0%}[/{governance_color}] "
-        f"(canonical {score.passed}/{score.total}, surplus {score.surplus_row_count})"
+        f"(canonical {score.passed}/{score.total}, surplus {score.surplus_row_count}, pending {score.pending_backlog_count})"
     )
 
     for line in harness_summary[2:]:
@@ -156,10 +156,13 @@ def print_summary_table(scores: list[TrajectoryScore]) -> None:
     table.add_column("False -", justify="right")
     table.add_column("Field miss", justify="right")
     table.add_column("Surplus", justify="right")
+    table.add_column("Pending", justify="right")
+    table.add_column("Replay", justify="right")
 
     overall_passed = 0
     overall_total = 0
     overall_surplus = 0
+    overall_pending = 0
 
     for score in scores:
         governance_color = "green" if score.governance_accuracy == 1.0 else (
@@ -168,6 +171,7 @@ def print_summary_table(scores: list[TrajectoryScore]) -> None:
         canonical_color = "green" if score.canonical_accuracy == 1.0 else (
             "yellow" if score.canonical_accuracy >= 0.5 else "red"
         )
+        replay_color = "green" if score.replay_health == 1.0 else "yellow"
         table.add_row(
             score.trajectory_id,
             f"[{governance_color}]{score.governance_accuracy:.0%}[/{governance_color}]",
@@ -177,10 +181,13 @@ def print_summary_table(scores: list[TrajectoryScore]) -> None:
             str(score.false_negative_count),
             str(score.field_mismatch_count),
             str(score.surplus_row_count),
+            str(score.pending_backlog_count),
+            f"[{replay_color}]{score.replay_health:.0%}[/{replay_color}]",
         )
         overall_passed += score.passed
         overall_total += score.total
         overall_surplus += score.surplus_row_count
+        overall_pending += score.pending_backlog_count
 
     overall_canonical = overall_passed / overall_total if overall_total > 0 else 0.0
     overall_governance = overall_passed / (overall_total + overall_surplus) if (overall_total + overall_surplus) > 0 else 0.0
@@ -200,6 +207,8 @@ def print_summary_table(scores: list[TrajectoryScore]) -> None:
         "",
         "",
         f"[bold]{overall_surplus}[/bold]",
+        f"[bold]{overall_pending}[/bold]",
+        "",
     )
 
     console.print(table)
@@ -224,6 +233,8 @@ def scores_to_dict(
                 "false_negative_count": s.false_negative_count,
                 "field_mismatch_count": s.field_mismatch_count,
                 "surplus_row_count": s.surplus_row_count,
+                "pending_backlog_count": s.pending_backlog_count,
+                "replay_health": s.replay_health,
                 "outcomes": [
                     {
                         "bucket": r.outcome.bucket,

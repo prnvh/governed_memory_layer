@@ -21,6 +21,9 @@ class WriteRequest(BaseModel):
     target_id: Optional[str] = None    # e.g. "main", "issue_7", slug from content
     operation: Optional[str] = None    # upsert, append, resolve, invalidate
     payload: Optional[dict[str, Any]] = None
+    reference_text: Optional[str] = None
+    candidate_aliases: Optional[list[str]] = None
+    confidence: Optional[float] = None
     rationale: str                     # why accept or reject. used for logging
 
 
@@ -54,12 +57,18 @@ Shared memory buckets and their required payload fields:
                   "source_issue_id": str|null }              op: append
 
 Output ONLY valid JSON. No explanation outside the JSON.
-For accept: { "decision": "accept", "bucket": "...", "target_id": "...", "operation": "...", "payload": {...}, "rationale": "..." }
+For accept: { "decision": "accept", "bucket": "...", "target_id": "...", "operation": "...", "payload": {...}, "reference_text": "...", "candidate_aliases": ["..."], "confidence": 0.0-1.0, "rationale": "..." }
 For reject: { "decision": "reject", "rationale": "..." }
 
-target_id must be a short snake_case slug with no spaces.
+target_id must be a short snake_case slug with no spaces when you provide it.
 For plan: target_id must ALWAYS be exactly "main" (no exceptions).
 Include ALL required payload fields for the chosen bucket.
+reference_text is optional but strongly preferred for lifecycle notes that refer
+to an earlier issue / constraint / decision. It should capture the earlier thing
+being referred to in natural language or exact slug form.
+candidate_aliases is optional and can include short alternate handles that would
+help match the same entity later.
+confidence is optional and should reflect how certain you are in the write.
 
 If OPEN ISSUES are provided in the context below, you must check them before
 classifying a note about issues. Specifically:
@@ -83,6 +92,14 @@ classifying a note about constraints. Specifically:
   set target_id to that constraint's exact constraint_id.
 - If the note introduces a new constraint, use operation "upsert" with a new
   snake_case target_id.
+
+Important:
+- Your primary job is to classify the note's meaning correctly.
+- Do NOT invent a precise existing target_id if you are unsure.
+- For lifecycle notes, if you are uncertain about the exact existing id, still
+  emit the correct bucket and operation, include reference_text, and use a
+  best-effort target_id only if you have one.
+- Prefer preserving a strong reference_text over hallucinating a wrong id.
 
 Reject if:
 - The note is vague thinking, not a concrete fact/decision/result/issue
@@ -213,6 +230,7 @@ Reject if:
         """
         text = candidate_note.strip()
         lowered = text.lower()
+        explicit_slugs = re.findall(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b", lowered)
 
         if lowered.startswith("plan:") or lowered.startswith("plan for "):
             return WriteRequest(
@@ -241,6 +259,37 @@ Reject if:
                 rationale="heuristic_learning",
             )
 
+        if lowered.startswith("constraint:"):
+            constraint_text = text.split(":", 1)[1].strip()
+            target_id = explicit_slugs[0] if len(explicit_slugs) == 1 else self._slugify_local(constraint_text, "constraint")
+            return WriteRequest(
+                decision="accept",
+                bucket="constraints",
+                target_id=target_id,
+                operation="upsert",
+                payload={
+                    "text": constraint_text,
+                    "scope": None,
+                },
+                rationale="heuristic_constraint",
+            )
+
+        if lowered.startswith("decision:"):
+            statement = text.split(":", 1)[1].strip()
+            target_id = explicit_slugs[0] if len(explicit_slugs) == 1 else self._slugify_local(statement, "decision")
+            return WriteRequest(
+                decision="accept",
+                bucket="decisions",
+                target_id=target_id,
+                operation="append",
+                payload={
+                    "statement": statement,
+                    "rationale": None,
+                    "scope": None,
+                },
+                rationale="heuristic_decision",
+            )
+
         issue_like_note = any(
             phrase in lowered for phrase in (
                 " is open",
@@ -254,6 +303,71 @@ Reject if:
         )
         if issue_like_note:
             return None
+
+        if len(explicit_slugs) == 1:
+            explicit_slug = explicit_slugs[0]
+
+            if (
+                "constraint" in lowered
+                and any(
+                    phrase in lowered for phrase in (
+                        "no longer applies",
+                        "should be invalidated",
+                        "must be invalidated",
+                        "can be lifted",
+                        "can be removed",
+                    )
+                )
+            ):
+                return WriteRequest(
+                    decision="accept",
+                    bucket="constraints",
+                    target_id=explicit_slug,
+                    operation="invalidate",
+                    payload={},
+                    reference_text=explicit_slug,
+                    candidate_aliases=[explicit_slug],
+                    rationale="heuristic_constraint_invalidate",
+                )
+
+            if any(
+                phrase in lowered for phrase in (
+                    "decision is superseded",
+                    "decision is no longer active",
+                    "is superseded by",
+                    "replaces it",
+                    "replaces the earlier",
+                )
+            ):
+                return WriteRequest(
+                    decision="accept",
+                    bucket="decisions",
+                    target_id=explicit_slug,
+                    operation="invalidate",
+                    payload={},
+                    reference_text=explicit_slug,
+                    candidate_aliases=[explicit_slug],
+                    rationale="heuristic_decision_invalidate",
+                )
+
+            if any(
+                phrase in lowered for phrase in (
+                    "is resolved",
+                    "is now resolved",
+                    "is closed",
+                    "no longer open",
+                )
+            ):
+                return WriteRequest(
+                    decision="accept",
+                    bucket="issues",
+                    target_id=explicit_slug,
+                    operation="resolve",
+                    payload={},
+                    reference_text=explicit_slug,
+                    candidate_aliases=[explicit_slug],
+                    rationale="heuristic_issue_resolve",
+                )
 
         status = None
         if re.search(r"\bis now in progress\b|\bin progress\b|\bkicked off\b", lowered):

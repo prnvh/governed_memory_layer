@@ -73,7 +73,12 @@ class FakeInterpreter:
         """Queue a response to be returned by the next interpret() call."""
         self._queue.append(response)
 
-    def interpret(self, candidate_note: str, agent_id: str) -> WriteRequest:
+    def interpret(
+        self,
+        candidate_note: str,
+        agent_id: str,
+        context=None,
+    ) -> WriteRequest:
         """
         Return the next queued response if available.
         Once the queue is exhausted, always return a fresh default reject —

@@ -124,6 +124,8 @@ class TrajectoryScore:
     false_negative_count: int
     field_mismatch_count: int
     surplus_row_count: int
+    pending_backlog_count: int
+    replay_health: float
 
     def summary_lines(self) -> list[str]:
         """Return a human-readable summary as a list of strings."""
@@ -131,10 +133,12 @@ class TrajectoryScore:
             f"Trajectory : {self.trajectory_id}",
             f"Canonical  : {self.canonical_accuracy:.0%} ({self.passed}/{self.total})",
             f"Governance : {self.governance_accuracy:.0%}",
+            f"Replay     : {self.replay_health:.0%}",
             f"False pos  : {self.false_positive_count}",
             f"False neg  : {self.false_negative_count}",
             f"Field miss : {self.field_mismatch_count}",
             f"Surplus    : {self.surplus_row_count}",
+            f"Pending    : {self.pending_backlog_count}",
         ]
         for r in self.outcome_results:
             status = "PASS" if r.passed else "FAIL"
@@ -204,10 +208,12 @@ class Scorer:
             if not r.passed and r.outcome.present and r.actual_row is not None
         )
         surplus_row_count = len(surplus_results)
+        pending_backlog_count = self._pending_backlog_count(snapshot)
 
         canonical_accuracy = passed / total if total > 0 else 0.0
         governance_denominator = total + surplus_row_count
         governance_accuracy = passed / governance_denominator if governance_denominator > 0 else 0.0
+        replay_health = 1.0 if pending_backlog_count == 0 else 0.0
 
         return TrajectoryScore(
             trajectory_id=trajectory.id,
@@ -221,6 +227,8 @@ class Scorer:
             false_negative_count=false_negative_count,
             field_mismatch_count=field_mismatch_count,
             surplus_row_count=surplus_row_count,
+            pending_backlog_count=pending_backlog_count,
+            replay_health=replay_health,
         )
 
     def _score_scratchpad(self, scratchpad: str, trajectory: Trajectory) -> TrajectoryScore:
@@ -255,6 +263,8 @@ class Scorer:
             false_negative_count=false_negative_count,
             field_mismatch_count=field_mismatch_count,
             surplus_row_count=0,
+            pending_backlog_count=0,
+            replay_health=1.0,
         )
 
     # ------------------------------------------------------------------
@@ -725,3 +735,13 @@ class Scorer:
         if isinstance(bucket_data, list):
             return len(bucket_data)
         return 0
+
+    def _pending_backlog_count(self, snapshot: dict) -> int:
+        pending_events = snapshot.get("pending_events")
+        if not isinstance(pending_events, list):
+            return 0
+        return sum(
+            1
+            for row in pending_events
+            if str(row.get("status", "")).lower() in {"open", "on_hold"}
+        )

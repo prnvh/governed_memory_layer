@@ -243,6 +243,39 @@ class SharedMemory:
         )
         return self._rows_to_dicts(cursor.fetchall())
 
+    def get_pending_events(
+        self,
+        statuses: Optional[list[str]] = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        """
+        Read from pending_memory_events for queue introspection and retry tooling.
+        Not for normal agent reasoning.
+        """
+        if statuses:
+            placeholders = ", ".join("?" for _ in statuses)
+            cursor = self.conn.execute(
+                f"""
+                SELECT *
+                FROM pending_memory_events
+                WHERE status IN ({placeholders})
+                ORDER BY timestamp DESC
+                LIMIT ?
+                """,
+                (*statuses, limit),
+            )
+        else:
+            cursor = self.conn.execute(
+                """
+                SELECT *
+                FROM pending_memory_events
+                ORDER BY timestamp DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+        return self._rows_to_dicts(cursor.fetchall())
+
     # ------------------------------------------------------------------
     # Snapshot (debugging / benchmark evaluation)
     # ------------------------------------------------------------------
@@ -262,6 +295,7 @@ class SharedMemory:
             "results":     list[dict],
             "task_state":  list[dict],
             "learnings":   list[dict],
+            "pending_events": list[dict],
         }
         """
         return {
@@ -272,4 +306,5 @@ class SharedMemory:
             "results":     self.get_results(),
             "task_state":  self.get_all_tasks(),
             "learnings":   self.get_learnings(),
+            "pending_events": self.get_pending_events(limit=1000),
         }

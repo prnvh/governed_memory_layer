@@ -56,7 +56,7 @@ class NoteOutcome:
     so baseline systems can produce compatible records.
     """
     note_text: str
-    decision: str           # accept | reject | invalid | error | n/a
+    decision: str           # accept | provisional | reject | invalid | error | n/a
     bucket: Optional[str]   # set if accepted
     event_id: Optional[str] # set if written to events_memory
     rationale: str
@@ -86,6 +86,7 @@ class HarnessResult:
     note_outcomes: list[NoteOutcome]
     events_written: int
     accepted_count: int
+    provisional_count: int
     rejected_count: int
     run_duration_seconds: float
     error: Optional[str] = None
@@ -96,6 +97,7 @@ class HarnessResult:
             f"Trajectory : {self.trajectory_id}",
             f"Duration   : {self.run_duration_seconds:.2f}s",
             f"Accepted   : {self.accepted_count}",
+            f"Provisional: {self.provisional_count}",
             f"Rejected   : {self.rejected_count}",
             f"Events     : {self.events_written}",
         ]
@@ -215,6 +217,7 @@ class GovernedMemoryHarness(BaseHarness):
                 note_outcomes=[],
                 events_written=0,
                 accepted_count=0,
+                provisional_count=0,
                 rejected_count=0,
                 run_duration_seconds=elapsed,
                 error=str(exc),
@@ -235,6 +238,7 @@ class GovernedMemoryHarness(BaseHarness):
         ]
 
         accepted_count = sum(1 for r in promotion_results if r.decision == "accept")
+        provisional_count = sum(1 for r in promotion_results if r.decision == "provisional")
         rejected_count = sum(1 for r in promotion_results if r.decision == "reject")
 
         logger.info(
@@ -253,6 +257,7 @@ class GovernedMemoryHarness(BaseHarness):
             note_outcomes=note_outcomes,
             events_written=events_written,
             accepted_count=accepted_count,
+            provisional_count=provisional_count,
             rejected_count=rejected_count,
             run_duration_seconds=elapsed,
         )
@@ -358,6 +363,7 @@ class FaultInjectionHarness(BaseHarness):
                 note_outcomes=[],
                 events_written=0,
                 accepted_count=0,
+                provisional_count=0,
                 rejected_count=0,
                 run_duration_seconds=elapsed,
                 error=str(exc),
@@ -375,6 +381,7 @@ class FaultInjectionHarness(BaseHarness):
             for r in promotion_results
         ]
         accepted_count = sum(1 for r in promotion_results if r.decision == "accept")
+        provisional_count = sum(1 for r in promotion_results if r.decision == "provisional")
         rejected_count = sum(1 for r in promotion_results if r.decision == "reject")
 
         return HarnessResult(
@@ -384,6 +391,7 @@ class FaultInjectionHarness(BaseHarness):
             note_outcomes=note_outcomes,
             events_written=events_written,
             accepted_count=accepted_count,
+            provisional_count=provisional_count,
             rejected_count=rejected_count,
             run_duration_seconds=elapsed,
         )
@@ -396,7 +404,7 @@ class FaultInjectionHarness(BaseHarness):
         rows = conn.execute(
             """
             SELECT event_id, timestamp, source_agent, bucket, target_id,
-                   operation, payload_json
+                   operation, payload_json, source_ref
             FROM events_memory
             ORDER BY timestamp ASC
             """

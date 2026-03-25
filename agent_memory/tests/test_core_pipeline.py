@@ -37,6 +37,7 @@ def make_event(bucket, target_id, operation, payload, event_id="ev1", source_age
 from memory.validator import Validator, ValidationError
 from memory.shared_memory_writer import SharedMemoryWriter
 from memory.inputter import Inputter
+from memory.shared_memory import SharedMemory
 from memory.working_memory import WorkingMemory
 from memory.promotion import PromotionPipeline, PromotionResult
 
@@ -61,6 +62,10 @@ def make_write_request(**kwargs) -> WriteRequest:
 
 def event_count(db_conn) -> int:
     return db_conn.execute("SELECT COUNT(*) FROM events_memory").fetchone()[0]
+
+
+def pending_event_count(db_conn) -> int:
+    return db_conn.execute("SELECT COUNT(*) FROM pending_memory_events").fetchone()[0]
 
 
 def fetch_one(db_conn, table: str, pk_col: str, pk_val: str):
@@ -191,13 +196,16 @@ class TestSharedMemoryWriter:
     # ── constraints ─────────────────────────────────────────────────────────
 
     def test_project_constraints_upsert(self, db_conn, shared_memory_writer):
-        shared_memory_writer.write(
-            make_event("constraints", "no_ext_writes", "upsert", {"text": "No external writes", "scope": None})
-        )
+        event = make_event("constraints", "no_ext_writes", "upsert", {"text": "No external writes", "scope": None})
+        event["raw_input"] = "Constraint: No external writes."
+        shared_memory_writer.write(event)
         db_conn.commit()
         row = fetch_one(db_conn, "shared_constraints", "constraint_id", "no_ext_writes")
         assert row["text"] == "No external writes"
         assert row["status"] == "active"
+        ref_memory = json.loads(row["reference_memory_json"])
+        assert ref_memory["canonical_text"] == "No external writes"
+        assert "no_ext_writes" in ref_memory["aliases"]
 
     def test_project_constraints_invalidate(self, db_conn, shared_memory_writer):
         shared_memory_writer.write(
@@ -210,17 +218,33 @@ class TestSharedMemoryWriter:
         row = fetch_one(db_conn, "shared_constraints", "constraint_id", "no_ext_writes")
         assert row["status"] == "invalidated"
 
+    def test_project_constraints_invalidate_can_canonicalize_identifier(self, db_conn, shared_memory_writer):
+        shared_memory_writer.write(
+            make_event("constraints", "constraint_old_slug", "upsert", {"text": "No external writes"}, event_id="ev1")
+        )
+        invalidate_event = make_event("constraints", "freeze_schema_migrations", "invalidate", {}, event_id="ev2")
+        invalidate_event["matched_target_id"] = "constraint_old_slug"
+        shared_memory_writer.write(invalidate_event)
+        db_conn.commit()
+        row = fetch_one(db_conn, "shared_constraints", "constraint_id", "freeze_schema_migrations")
+        assert row is not None
+        assert row["status"] == "invalidated"
+        assert fetch_one(db_conn, "shared_constraints", "constraint_id", "constraint_old_slug") is None
+
     # ── issues ───────────────────────────────────────────────────────────────
 
     def test_project_issues_upsert(self, db_conn, shared_memory_writer):
-        shared_memory_writer.write(
-            make_event("issues", "pandas_err", "upsert", {"title": "Pandas import error", "severity": "high"})
-        )
+        event = make_event("issues", "pandas_err", "upsert", {"title": "Pandas import error", "severity": "high"})
+        event["raw_input"] = "The pandas error is open."
+        shared_memory_writer.write(event)
         db_conn.commit()
         row = fetch_one(db_conn, "shared_issues", "issue_id", "pandas_err")
         assert row["status"] == "open"
         assert row["severity"] == "high"
         assert row["first_seen_event_id"] == "ev1"
+        ref_memory = json.loads(row["reference_memory_json"])
+        assert ref_memory["canonical_text"] == "Pandas import error"
+        assert "pandas_err" in ref_memory["aliases"]
 
     def test_project_issues_upsert_preserves_first_seen(self, db_conn, shared_memory_writer):
         """Re-upserting an issue should NOT overwrite first_seen_event_id."""
@@ -246,16 +270,37 @@ class TestSharedMemoryWriter:
         row = fetch_one(db_conn, "shared_issues", "issue_id", "pandas_err")
         assert row["status"] == "resolved"
 
+    def test_project_issues_resolve_can_canonicalize_identifier(self, db_conn, shared_memory_writer):
+        open_event = make_event("issues", "issue_old_slug", "upsert", {"title": "Pandas error", "severity": "high"}, event_id="ev1")
+        open_event["raw_input"] = "The pandas import blocker is open."
+        shared_memory_writer.write(open_event)
+        resolve_event = make_event("issues", "pandas_import_blocker", "resolve", {}, event_id="ev2")
+        resolve_event["matched_target_id"] = "issue_old_slug"
+        resolve_event["raw_input"] = "The pandas_import_blocker is resolved."
+        resolve_event["source_ref"] = json.dumps({"reference_text": "that earlier blocker"})
+        shared_memory_writer.write(resolve_event)
+        db_conn.commit()
+        row = fetch_one(db_conn, "shared_issues", "issue_id", "pandas_import_blocker")
+        assert row is not None
+        assert row["status"] == "resolved"
+        assert fetch_one(db_conn, "shared_issues", "issue_id", "issue_old_slug") is None
+        ref_memory = json.loads(row["reference_memory_json"])
+        assert "pandas_import_blocker" in ref_memory["aliases"]
+        assert any("earlier blocker" in expr for expr in ref_memory["seen_referring_expressions"])
+
     # ── decisions ────────────────────────────────────────────────────────────
 
     def test_project_decisions_append(self, db_conn, shared_memory_writer):
-        shared_memory_writer.write(
-            make_event("decisions", "use_ds_b", "append", {"statement": "Use dataset B", "rationale": None, "scope": None})
-        )
+        event = make_event("decisions", "use_ds_b", "append", {"statement": "Use dataset B", "rationale": None, "scope": None})
+        event["raw_input"] = "Decision: use dataset B."
+        shared_memory_writer.write(event)
         db_conn.commit()
         row = fetch_one(db_conn, "shared_decisions", "decision_id", "use_ds_b")
         assert row["status"] == "active"
         assert row["statement"] == "Use dataset B"
+        ref_memory = json.loads(row["reference_memory_json"])
+        assert ref_memory["canonical_text"] == "Use dataset B"
+        assert "use_ds_b" in ref_memory["aliases"]
 
     def test_project_decisions_invalidate(self, db_conn, shared_memory_writer):
         shared_memory_writer.write(
@@ -267,6 +312,41 @@ class TestSharedMemoryWriter:
         db_conn.commit()
         row = fetch_one(db_conn, "shared_decisions", "decision_id", "use_ds_b")
         assert row["status"] == "superseded"
+
+    def test_project_decisions_invalidate_can_canonicalize_identifier(self, db_conn, shared_memory_writer):
+        shared_memory_writer.write(
+            make_event("decisions", "decision_old_slug", "append", {"statement": "Use dataset B"}, event_id="ev1")
+        )
+        invalidate_event = make_event("decisions", "nightly_cache_warmup", "invalidate", {}, event_id="ev2")
+        invalidate_event["matched_target_id"] = "decision_old_slug"
+        shared_memory_writer.write(invalidate_event)
+        db_conn.commit()
+        row = fetch_one(db_conn, "shared_decisions", "decision_id", "nightly_cache_warmup")
+        assert row is not None
+        assert row["status"] == "superseded"
+        assert fetch_one(db_conn, "shared_decisions", "decision_id", "decision_old_slug") is None
+
+    def test_project_decisions_append_collision_uses_deterministic_statement_slug(self, db_conn, shared_memory_writer):
+        shared_memory_writer.write(
+            make_event("decisions", "shared_target", "append", {"statement": "Use dataset B"}, event_id="ev1")
+        )
+        shared_memory_writer.write(
+            make_event(
+                "decisions",
+                "shared_target",
+                "append",
+                {"statement": "Switch to focal loss after the ablation outperformed class weights"},
+                event_id="ev2",
+            )
+        )
+        db_conn.commit()
+        assert fetch_one(db_conn, "shared_decisions", "decision_id", "shared_target") is not None
+        assert fetch_one(
+            db_conn,
+            "shared_decisions",
+            "decision_id",
+            "switch_to_focal_loss_after_the_ablation_outperformed_class_weights",
+        ) is not None
 
     # ── results ──────────────────────────────────────────────────────────────
 
@@ -364,6 +444,36 @@ class TestInputter:
         row = fetch_one(db_conn, "events_memory", "event_id", event_id)
         assert row["applied_successfully"] == 0
 
+    def test_write_provisional_enqueues_pending_event(self, db_conn, inputter):
+        from memory.resolver import ResolvedWrite
+
+        pending_id = inputter.write_provisional(
+            resolved_write=ResolvedWrite(
+                decision="provisional",
+                bucket="issues",
+                operation="resolve",
+                payload={},
+                reference_text="earlier blocker",
+                candidate_matches=[],
+                resolution_reason="unresolved_issue_reference",
+            ),
+            source_agent="agent_1",
+            raw_input="The earlier blocker is fixed.",
+            write_request=make_write_request(
+                bucket="issues",
+                target_id="pandas_import_blocker",
+                operation="resolve",
+                payload={},
+                reference_text="earlier blocker",
+            ),
+        )
+
+        row = fetch_one(db_conn, "pending_memory_events", "pending_id", pending_id)
+        assert row is not None
+        assert row["status"] == "open"
+        assert row["retry_count"] == 0
+        assert row["target_id"] == "pandas_import_blocker"
+
 
 # ===========================================================================
 # Promotion pipeline tests
@@ -422,6 +532,160 @@ class TestPromotionPipeline:
         assert results[0].decision == "invalid"
         assert event_count(db_conn) == 0
 
+    def test_provisional_path_writes_pending_event_only(
+        self, db_conn, pipeline, fake_interpreter
+    ):
+        fake_interpreter.set_response(WriteRequest(
+            decision="accept",
+            bucket="issues",
+            target_id="pandas_import_blocker",
+            operation="resolve",
+            payload={},
+            reference_text="the earlier pandas import blocker",
+            rationale="test provisional lifecycle resolution",
+        ))
+        wm = self._make_wm()
+        wm.add_note("The earlier blocker is now fixed.")
+
+        results = pipeline.run(wm, trigger="end_of_step")
+
+        assert len(results) == 1
+        assert results[0].decision == "provisional"
+        assert results[0].event_id is not None
+        assert event_count(db_conn) == 0
+        assert pending_event_count(db_conn) == 1
+
+    def test_pending_queue_retries_when_canonical_memory_changes(
+        self, db_conn, fake_interpreter
+    ):
+        fake_interpreter.set_response(WriteRequest(
+            decision="accept",
+            bucket="issues",
+            target_id="pandas_import_blocker",
+            operation="resolve",
+            payload={},
+            reference_text="the earlier blocker",
+            rationale="resolve earlier issue",
+        ))
+        fake_interpreter.set_response(WriteRequest(
+            decision="accept",
+            bucket="issues",
+            target_id="pandas_import_blocker",
+            operation="upsert",
+            payload={"title": "Pandas import blocker", "severity": "high"},
+            reference_text="pandas import blocker",
+            rationale="open issue",
+        ))
+
+        pipeline = PromotionPipeline(
+            interpreter=fake_interpreter,
+            validator=Validator(),
+            inputter=Inputter(db_conn, SharedMemoryWriter(db_conn)),
+            shared_memory=SharedMemory(db_conn),
+        )
+
+        wm = self._make_wm()
+        wm.add_note("The earlier blocker is fixed.")
+        wm.add_note("The pandas import blocker is now open.")
+
+        results = pipeline.run(wm, trigger="end_of_step")
+
+        assert [result.decision for result in results] == ["provisional", "accept"]
+        assert event_count(db_conn) == 2
+        assert pending_event_count(db_conn) == 1
+
+        pending_row = db_conn.execute(
+            "SELECT * FROM pending_memory_events"
+        ).fetchone()
+        pending = dict(pending_row)
+        assert pending["status"] == "committed"
+        assert pending["retry_count"] == 1
+        assert pending["resolved_event_id"] is not None
+
+        issue = fetch_one(db_conn, "shared_issues", "issue_id", "pandas_import_blocker")
+        assert issue is not None
+        assert issue["status"] == "resolved"
+
+    def test_lifecycle_resolve_uses_requested_target_id_to_canonicalize_issue(
+        self, db_conn, fake_interpreter
+    ):
+        fake_interpreter.set_response(WriteRequest(
+            decision="accept",
+            bucket="issues",
+            target_id="issue_old_slug",
+            operation="upsert",
+            payload={"title": "Pandas import blocker", "severity": "high"},
+            rationale="open issue with weak id",
+        ))
+        fake_interpreter.set_response(WriteRequest(
+            decision="accept",
+            bucket="issues",
+            target_id="pandas_import_blocker",
+            operation="resolve",
+            payload={},
+            reference_text="pandas_import_blocker",
+            rationale="resolve exact issue id from context",
+        ))
+
+        pipeline = PromotionPipeline(
+            interpreter=fake_interpreter,
+            validator=Validator(),
+            inputter=Inputter(db_conn, SharedMemoryWriter(db_conn)),
+            shared_memory=SharedMemory(db_conn),
+        )
+
+        wm = self._make_wm()
+        wm.add_note("The blocker is open.")
+        wm.add_note("The pandas import blocker is resolved.")
+
+        results = pipeline.run(wm, trigger="end_of_step")
+
+        assert [result.decision for result in results] == ["accept", "accept"]
+        issue = fetch_one(db_conn, "shared_issues", "issue_id", "pandas_import_blocker")
+        assert issue is not None
+        assert issue["status"] == "resolved"
+        assert fetch_one(db_conn, "shared_issues", "issue_id", "issue_old_slug") is None
+
+    def test_lifecycle_invalidate_uses_requested_target_id_to_canonicalize_constraint(
+        self, db_conn, fake_interpreter
+    ):
+        fake_interpreter.set_response(WriteRequest(
+            decision="accept",
+            bucket="constraints",
+            target_id="constraint_old_slug",
+            operation="upsert",
+            payload={"text": "Keep batch size at or below 16", "scope": None},
+            rationale="create temporary constraint",
+        ))
+        fake_interpreter.set_response(WriteRequest(
+            decision="accept",
+            bucket="constraints",
+            target_id="freeze_batch_size_16",
+            operation="invalidate",
+            payload={},
+            reference_text="freeze_batch_size_16",
+            rationale="invalidate exact constraint id from context",
+        ))
+
+        pipeline = PromotionPipeline(
+            interpreter=fake_interpreter,
+            validator=Validator(),
+            inputter=Inputter(db_conn, SharedMemoryWriter(db_conn)),
+            shared_memory=SharedMemory(db_conn),
+        )
+
+        wm = self._make_wm()
+        wm.add_note("Constraint: Keep batch size at or below 16.")
+        wm.add_note("The freeze_batch_size_16 constraint no longer applies.")
+
+        results = pipeline.run(wm, trigger="end_of_step")
+
+        assert [result.decision for result in results] == ["accept", "accept"]
+        row = fetch_one(db_conn, "shared_constraints", "constraint_id", "freeze_batch_size_16")
+        assert row is not None
+        assert row["status"] == "invalidated"
+        assert fetch_one(db_conn, "shared_constraints", "constraint_id", "constraint_old_slug") is None
+
     def test_all_notes_marked_promoted_after_run(self, pipeline, fake_interpreter):
         """Even rejected notes should be marked as promoted so they aren't re-processed."""
         wm = self._make_wm()
@@ -462,7 +726,7 @@ class TestPromotionPipeline:
     def test_interpreter_exception_recorded_as_error(
         self, db_conn, pipeline, fake_interpreter, monkeypatch
     ):
-        def exploding_interpret(candidate_note, agent_id):
+        def exploding_interpret(candidate_note, agent_id, context=None):
             raise RuntimeError("API is down")
 
         monkeypatch.setattr(fake_interpreter, "interpret", exploding_interpret)
